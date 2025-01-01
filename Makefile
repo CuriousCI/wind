@@ -53,9 +53,12 @@ wind_cuda: wind_cuda.cu
 	$(CUDACC) $(DEBUG) $< $(LIBS) -o $@
 
 wind_pthread: wind_pthread.c
-	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
+	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -lpthread -o $@
  
-gdb: wind_pthread.c
+wind_pthread_gdb: wind_pthread.c
+	$(CC) -Wall -pedantic -ggdb -g3 -lpthread $< $(LIBS) -o $@
+
+wind_seq_gdb: wind.c
 	$(CC) -Wall -pedantic -ggdb -g3 $< $(LIBS) -o $@
 
 # Remove the target files

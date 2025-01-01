@@ -1,12 +1,14 @@
 #!/bin/bash
 
+run_benchmark=false
 run_perf=false
 run_valgrind=false
 
-while getopts ":pv" opt; do
+while getopts ":pvb" opt; do
   case $opt in
     p) run_perf=true;;
     v) run_valgrind=true;;
+    b) run_benchmark=true;;
   esac
 done
 
@@ -30,22 +32,25 @@ short_rnd1=$((RANDOM % 10000 + 1))
 short_rnd2=$((RANDOM % 10000 + 1))
 short_rnd3=$((RANDOM % 10000 + 1))
 
-echo $short_rnd1
-echo $short_rnd2
-echo $short_rnd3
+if $run_benchmark; then
+    echo $short_rnd1
+    echo $short_rnd2
+    echo $short_rnd3
 
-make wind_seq wind_mpi wind_omp wind_pthread
+    make wind_seq wind_mpi wind_omp wind_pthread
 
-./wind_seq $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results
+    ./wind_seq $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results
 
-mpirun ./wind_mpi $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results
+    mpirun ./wind_mpi $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results
 
-./wind_omp $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
+    ./wind_omp $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
 
-./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
-./check_results
+    ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
+    ./check_results
 
-rm results
+    rm results
+
+fi
 
 if $run_perf; then 
     perf stat ./wind_seq $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results
@@ -56,7 +61,7 @@ fi
 if $run_valgrind; then
     rows=100
     columns=100
-    max_iter=1000
+    max_iter=30
     var_threshold=0.0
 
     inlet_pos=2
@@ -70,24 +75,26 @@ if $run_valgrind; then
     particles_m_band_size=30
     particles_m_density=1.0 # [0.0, 1.0]
 
-    ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 
+    # TODO: recompile in ultra debugging mode for more information!
 
-    valgrind -s --tool=massif ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 
-
-    valgrind -s --tool=callgrind ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 2> data_cachegrind
-
-    valgrind -s --tool=cachegrind ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 2> data_cachegrind
-
+    make wind_seq_gdb wind_pthread_gdb
     rm target/* -f
+
+    valgrind -s --log-file=./target/helgrind.txt --tool=helgrind ./wind_pthread_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3
+
+    valgrind -s --tool=massif ./wind_pthread_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 
+
+    valgrind -s --tool=callgrind ./wind_pthread_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3
+
+    valgrind -s --tool=cachegrind ./wind_pthread_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3
+
     mv massif.out.* callgrind.out.* cachegrind.out.* target
 
-    ./wind_seq $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 
+    valgrind -s --tool=massif ./wind_seq_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 
 
-    valgrind -s --tool=massif ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 
+    valgrind -s --tool=callgrind ./wind_seq_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3
 
-    valgrind -s --tool=callgrind ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 2> data_cachegrind
-
-    valgrind -s --tool=cachegrind ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 2> data_cachegrind
+    valgrind -s --tool=cachegrind ./wind_seq_gdb $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3
 
     for f in *.out.*; do 
         mv $f target/$f.seq

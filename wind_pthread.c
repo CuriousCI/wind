@@ -97,14 +97,12 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         int row = particles[particle].pos_row / PRECISION;
         int col = particles[particle].pos_col / PRECISION;
         int pressure = accessMat(flow, row - 1, col);
-        int left, right;
-        if (col == 0)
-            left = 0;
-        else
+        int left = 0, right = 0;
+
+        if (col > 0)
             left = pressure - accessMat(flow, row - 1, col - 1);
-        if (col == columns - 1)
-            right = 0;
-        else
+
+        if (col < columns - 1)
             right = pressure - accessMat(flow, row - 1, col + 1);
 
         int flow_row = (int)((float)pressure / particles[particle].mass * PRECISION);
@@ -127,6 +125,12 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
             particles[particle].pos_col = PRECISION * columns - 1;
     }
 }
+
+// if (col == 0)
+//     left = 0;
+// else
+//     right = 0;
+// else
 
 void scatter(int total, int pool_size, int *displs, int *counts) {
     int offset = 0,
@@ -514,8 +518,8 @@ int main(int argc, char *argv[]) {
                 max_var = 0;
 
             // 4.4. Copy data in the ancillary structure
-            memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns * sizeof(int));
             // TODO: One big memcpy or multiple small only on the udpated rows? This could speedup!
+            memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns * sizeof(int));
 
             // 4.5.2. Execute propagation on the wave fronts
             for (int wave = wave_front; wave < rows; wave += STEPS) {

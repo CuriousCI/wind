@@ -58,3 +58,6 @@ wind_mpi
 wind_cuda
 target
 arch.c
+wind_omp
+wind_pthread_gdb
+wind_seq_gdb
