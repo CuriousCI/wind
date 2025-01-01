@@ -50,3 +50,11 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+check_results
+wind_pthread
+gdb
+wind_seq
+wind_mpi
+wind_cuda
+target
+arch.c

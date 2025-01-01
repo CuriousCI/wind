@@ -52,11 +52,18 @@ wind_mpi: wind_mpi.c
 wind_cuda: wind_cuda.cu
 	$(CUDACC) $(DEBUG) $< $(LIBS) -o $@
 
+wind_pthread: wind_pthread.c
+	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
+ 
+gdb: wind_pthread.c
+	$(CC) -Wall -pedantic -ggdb -g3 $< $(LIBS) -o $@
+
 # Remove the target files
 clean:
-	rm -rf $(OBJS)
+	rm -rf $(OBJS) gdb wind_pthread
 
 # Compile in debug mode
 debug:
 	make DEBUG="-DDEBUG -g" FLAGS= all
 
+# DEBUGGING MPI # mpiexec –n 4 ./test : -n 1 ddd ./test : -n 1 ./test

@@ -1,7 +1,7 @@
 /*
  * Simplified simulation of air flow in a wind tunnel
  *
- * OpemMP version
+ * Reference sequential version (Do not modify this code)
  *
  * Computacion Paralela, Grado en Informatica (Universidad de Valladolid)
  * 2020/2021
@@ -15,16 +15,16 @@
  */
 #include <limits.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 
-/* Headers for the OpenMP assignment versions */
-#include <omp.h>
-
 #define PRECISION 10000
 #define STEPS 8
+/* --- */
+#define THREADS_SIZE 4
 
 /*
  * Student: Comment these macro definitions lines to eliminate modules
@@ -71,28 +71,15 @@ int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int
 
     // Update if border left
     if (col == 0) {
-        accessMat(flow, row, col) =
-            (accessMat(flow_copy, row, col) +
-             accessMat(flow_copy, row - 1, col) * 2 +
-             accessMat(flow_copy, row - 1, col + 1)) /
-            4;
+        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col + 1)) / 4;
     }
     // Update if border right
     if (col == columns - 1) {
-        accessMat(flow, row, col) =
-            (accessMat(flow_copy, row, col) +
-             accessMat(flow_copy, row - 1, col) * 2 +
-             accessMat(flow_copy, row - 1, col - 1)) /
-            4;
+        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col - 1)) / 4;
     }
     // Update in central part
     if (col > 0 && col < columns - 1) {
-        accessMat(flow, row, col) =
-            (accessMat(flow_copy, row, col) +
-             accessMat(flow_copy, row - 1, col) * 2 +
-             accessMat(flow_copy, row - 1, col - 1) +
-             accessMat(flow_copy, row - 1, col + 1)) /
-            5;
+        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col - 1) + accessMat(flow_copy, row - 1, col + 1)) / 5;
     }
 
     // Return flow variation at this position
@@ -105,8 +92,7 @@ int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int
  */
 void move_particle(int *flow, Particle *particles, int particle, int rows, int columns) {
     // Compute movement for each step
-    int step;
-    for (step = 0; step < STEPS; step++) {
+    for (int step = 0; step < STEPS; step++) {
         // Highly simplified phisical model
         int row = particles[particle].pos_row / PRECISION;
         int col = particles[particle].pos_col / PRECISION;
@@ -125,16 +111,12 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         int flow_col = (int)((float)(right - left) / particles[particle].mass * PRECISION);
 
         // Speed change
-        particles[particle].speed_row =
-            (particles[particle].speed_row + flow_row) / 2;
-        particles[particle].speed_col =
-            (particles[particle].speed_col + flow_col) / 2;
+        particles[particle].speed_row = (particles[particle].speed_row + flow_row) / 2;
+        particles[particle].speed_col = (particles[particle].speed_col + flow_col) / 2;
 
         // Movement
-        particles[particle].pos_row =
-            particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
-        particles[particle].pos_col =
-            particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
+        particles[particle].pos_row = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
+        particles[particle].pos_col = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
 
         // Control limits
         if (particles[particle].pos_row >= PRECISION * rows)
@@ -144,6 +126,54 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         if (particles[particle].pos_col >= PRECISION * columns)
             particles[particle].pos_col = PRECISION * columns - 1;
     }
+}
+
+void scatter(int total, int pool_size, int *displs, int *counts) {
+    int offset = 0,
+        proc_items = total / pool_size,
+        left_items = total % pool_size;
+
+    for (int thread = 0; thread < pool_size; thread++) {
+        displs[thread] = offset;
+        counts[thread] = proc_items + (thread < left_items);
+        offset += counts[thread];
+    }
+}
+
+/* --- */
+
+typedef struct {
+    int displ, count, rows, columns, *flow;
+    Particle *particles;
+} move_particle_args_t;
+
+void *move_particle_routine(void *arg) {
+    move_particle_args_t args = *(move_particle_args_t *)arg;
+
+    for (int particle = args.displ; particle < args.displ + args.count; particle++)
+        move_particle(args.flow, args.particles, particle, args.rows, args.columns);
+
+    return NULL;
+}
+
+typedef struct {
+    int displ, count, columns, *flow, *flow_copy, *particle_locations;
+    Particle *particles;
+} update_old_flow_args_t;
+
+void *update_old_flow_routine(void *arg) {
+    update_old_flow_args_t args = *(update_old_flow_args_t *)arg;
+    int columns = args.columns;
+
+    for (int particle = args.displ; particle < args.displ + args.count; particle++) {
+        int row = args.particles[particle].pos_row / PRECISION;
+        int col = args.particles[particle].pos_col / PRECISION;
+
+        update_flow(args.flow, args.flow_copy, args.particle_locations, row, col, args.columns, 0);
+        args.particles[particle].old_flow = accessMat(args.flow, row, col);
+    }
+
+    return NULL;
 }
 
 #ifdef DEBUG
@@ -158,9 +188,7 @@ void print_status(int iteration, int rows, int columns, int *flow, int num_parti
      * Thus, it is never used when measuring times in the leaderboard
      */
     int i, j;
-    printf("Iteration: %d, max_var: %f\n",
-           iteration,
-           (float)max_var / PRECISION);
+    printf("Iteration: %d, max_var: %f\n", iteration, (float)max_var / PRECISION);
 
     printf("  +");
     for (j = 0; j < columns; j++)
@@ -334,14 +362,7 @@ int main(int argc, char *argv[]) {
     printf("Arguments, Init Random Sequence: %hu,%hu,%hu\n", random_seq[0], random_seq[1], random_seq[2]);
     printf("Particles: %d\n", num_particles);
     for (int particle = 0; particle < num_particles; particle++) {
-        printf("Particle[%d] = { %d, %d, %d, %d, %d, %d }\n",
-               particle,
-               particles[particle].pos_row,
-               particles[particle].pos_col,
-               particles[particle].mass,
-               particles[particle].resistance,
-               particles[particle].speed_row,
-               particles[particle].speed_col);
+        printf("Particle[%d] = { %d, %d, %d, %d, %d, %d }\n", particle, particles[particle].pos_row, particles[particle].pos_col, particles[particle].mass, particles[particle].resistance, particles[particle].speed_row, particles[particle].speed_col);
     }
     printf("\n");
 #endif // DEBUG
@@ -356,140 +377,166 @@ int main(int argc, char *argv[]) {
      */
 
     /* 3. Initialization */
-    flow = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
-    flow_copy = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
-    particle_locations = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
 
-    if (flow == NULL || flow_copy == NULL || particle_locations == NULL) {
-        fprintf(stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns);
-        exit(EXIT_FAILURE);
+    flow = (int *)calloc(rows * columns, sizeof(int));
+    flow_copy = (int *)calloc(rows * columns, sizeof(int));
+    particle_locations = (int *)calloc(rows * columns, sizeof(int));
+
+    int num_particles_f = num_particles - num_particles_m_band;
+    int *particle_f_locations = (int *)calloc(rows * columns, sizeof(int)); // TODO: only rows and columns up to max fixed row and max fixed col
+    for (particle = 0; particle < num_particles_f; particle++)
+        accessMat(particle_f_locations, particles[particle].pos_row / PRECISION, particles[particle].pos_col / PRECISION)++;
+
+    int particles_displs[THREADS_SIZE],
+        particles_counts[THREADS_SIZE];
+    scatter(num_particles, THREADS_SIZE, particles_displs, particles_counts);
+
+    pthread_t threads[THREADS_SIZE];
+
+    move_particle_args_t move_particle_args[THREADS_SIZE];
+    {
+        int particles_m_displs[THREADS_SIZE],
+            particles_m_counts[THREADS_SIZE];
+
+        scatter(num_particles_m_band, THREADS_SIZE, particles_m_displs, particles_m_counts);
+
+        for (int thread = 0; thread < THREADS_SIZE; thread++)
+            move_particle_args[thread] = (move_particle_args_t){
+                num_particles_f + particles_m_displs[thread],
+                particles_m_counts[thread],
+                rows,
+                columns,
+                flow,
+                particles};
     }
 
-    for (i = 0; i < rows; i++) {
-        for (j = 0; j < columns; j++) {
-            accessMat(flow, i, j) = 0;
-            accessMat(flow_copy, i, j) = 0;
-            accessMat(particle_locations, i, j) = 0;
-        }
-    }
+    update_old_flow_args_t update_old_flow_args[THREADS_SIZE];
+    for (int thread = 0; thread < THREADS_SIZE; thread++)
+        update_old_flow_args[thread] = (update_old_flow_args_t){
+            particles_displs[thread],
+            particles_counts[thread],
+            columns,
+            flow,
+            flow_copy,
+            particle_locations,
+            particles};
 
     /* 4. Simulation */
     int max_var = INT_MAX;
     int iter;
-    for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
-
+    for (iter = 1; iter <= max_iter && max_var > var_threshold;) {
         // 4.1. Change inlet values each STEP iterations
-        if (iter % STEPS == 1) {
-            for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
-                // 4.1.1. Change the fans phase
-                double phase = iter / STEPS * (M_PI / 4);
-                double phase_step = M_PI / 2 / inlet_size;
-                double pressure_level = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
+        for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
+            // 4.1.1. Change the fans phase
+            double phase = iter / STEPS * (M_PI / 4);
+            double phase_step = M_PI / 2 / inlet_size;
+            double pressure_level = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
 
-                // 4.1.2. Add some random noise
-                double noise = 0.5 - erand48(random_seq);
+            // 4.1.2. Add some random noise
+            double noise = 0.5 - erand48(random_seq);
 
-                // 4.1.3. Store level in the first row of the ancillary structure
-                accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
-            }
-        } // End inlet update
+            // 4.1.3. Store level in the first row of the ancillary structure
+            accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
+        }
 
 #ifdef MODULE2
 #ifdef MODULE3
         // 4.2. Particles movement each STEPS iterations
-        if (iter % STEPS == 1) {
-            // Clean particle positions
-            for (i = 0; i <= iter && i < rows; i++)
-                for (j = 0; j < columns; j++)
-                    accessMat(particle_locations, i, j) = 0;
+        // Clean particle positions
+        // memcpy(particle_locations, particle_f_locations, rows * columns * sizeof(int));
+        // memcpy(particle_locations, particle_f_locations, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
+        // memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
+        for (i = 0; i <= iter && i < rows; i++)
+            for (j = 0; j < columns; j++)
+                accessMat(particle_locations, i, j) = 0;
 
-            int num_particles_f = num_particles - num_particles_m_band;
-            int particle;
-            // #pragma omp parallel
-            for (particle = num_particles_f; particle < num_particles; particle++) {
-                int mass = particles[particle].mass;
-                // Fixed particles
-                if (mass == 0)
-                    continue;
-                // Movable particles
-                move_particle(flow, particles, particle, rows, columns);
-            }
+        for (int thread = 0; thread < THREADS_SIZE; thread++)
+            pthread_create(
+                threads + thread,
+                NULL,
+                move_particle_routine,
+                move_particle_args + thread);
 
-            // Annotate position
-            // #pragma omp parallel
-            for (particle = 0; particle < num_particles; particle++) {
-                accessMat(particle_locations,
-                          particles[particle].pos_row / PRECISION,
-                          particles[particle].pos_col / PRECISION) += 1;
-            }
-        } // End particles movements
+        for (int thread = 0; thread < THREADS_SIZE; thread++)
+            pthread_join(threads[thread], NULL);
+
+        // Annotate position
+        // for (particle = num_particles_f; particle < num_particles; particle++)
+        //     accessMat(particle_locations, particles[particle].pos_row / PRECISION, particles[particle].pos_col / PRECISION)++;
+        for (particle = 0; particle < num_particles; particle++)
+            accessMat(particle_locations, particles[particle].pos_row / PRECISION, particles[particle].pos_col / PRECISION) += 1;
+
 #endif // MODULE3
 
         // 4.3. Effects due to particles each STEPS iterations
-        if (iter % STEPS == 1) {
-            int particle;
-            for (particle = 0; particle < num_particles; particle++) {
-                int row = particles[particle].pos_row / PRECISION;
-                int col = particles[particle].pos_col / PRECISION;
+        // for (int thread = 0; thread < THREADS_SIZE; thread++)
+        //     pthread_create(
+        //         threads + thread,
+        //         NULL,
+        //         update_old_flow_routine,
+        //         update_old_flow_args + thread);
+        //
+        // for (int thread = 0; thread < THREADS_SIZE; thread++)
+        //     pthread_join(threads[thread], NULL);
 
-                update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
-                particles[particle].old_flow = accessMat(flow, row, col);
-            }
-            for (particle = 0; particle < num_particles; particle++) {
-                int row = particles[particle].pos_row / PRECISION;
-                int col = particles[particle].pos_col / PRECISION;
-                int resistance = particles[particle].resistance;
+        for (particle = 0; particle < num_particles; particle++) {
+            int row = particles[particle].pos_row / PRECISION;
+            int col = particles[particle].pos_col / PRECISION;
 
-                int back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
-                accessMat(flow, row, col) -= back;
+            update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
+            particles[particle].old_flow = accessMat(flow, row, col);
+        }
 
-                accessMat(flow, row - 1, col) += back / 2;
+        for (particle = 0; particle < num_particles; particle++) {
+            int row = particles[particle].pos_row / PRECISION;
+            int col = particles[particle].pos_col / PRECISION;
 
-                if (col > 0)
-                    accessMat(flow, row - 1, col - 1) += back / 4;
-                else
-                    accessMat(flow, row - 1, col) += back / 4;
-                if (col < columns - 1)
-                    accessMat(flow, row - 1, col + 1) += back / 4;
-                else
-                    accessMat(flow, row - 1, col) += back / 4;
-            }
-        } // End effects
+            int resistance = particles[particle].resistance;
+
+            int back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
+            accessMat(flow, row, col) -= back;
+
+            accessMat(flow, row - 1, col) += back / 2;
+
+            if (col > 0)
+                accessMat(flow, row - 1, col - 1) += back / 4;
+            else
+                accessMat(flow, row - 1, col) += back / 4;
+            if (col < columns - 1)
+                accessMat(flow, row - 1, col + 1) += back / 4;
+            else
+                accessMat(flow, row - 1, col) += back / 4;
+        }
 #endif // MODULE2
 
-        // 4.4. Copy data in the ancillary structure
-        for (i = 0; i < iter && i < rows; i++)
-            for (j = 0; j < columns; j++)
-                accessMat(flow_copy, i, j) = accessMat(flow, i, j);
+        for (int wave_front = 1; wave_front <= STEPS && iter <= max_iter && max_var > var_threshold; wave_front++, iter++) {
+            if (wave_front == 1)
+                max_var = 0;
 
-        // 4.5. Propagation stage
-        // 4.5.1. Initialize data to detect maximum variability
-        if (iter % STEPS == 1)
-            max_var = 0;
+            // 4.4. Copy data in the ancillary structure
+            memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns * sizeof(int));
+            // TODO: One big memcpy or multiple small only on the udpated rows? This could speedup!
 
-        // 4.5.2. Execute propagation on the wave fronts
-        int wave_front = iter % STEPS;
-        if (wave_front == 0)
-            wave_front = STEPS;
-        int wave;
-        for (wave = wave_front; wave < rows; wave += STEPS) {
-            if (wave > iter)
-                continue;
-            int col;
-            for (col = 0; col < columns; col++) {
-                int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
-                if (var > max_var) {
-                    max_var = var;
+            // 4.5.2. Execute propagation on the wave fronts
+            for (int wave = wave_front; wave < rows; wave += STEPS) {
+                if (wave > iter)
+                    break;
+
+                for (int col = 0; col < columns; col++) {
+                    int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
+                    if (var > max_var)
+                        max_var = var;
                 }
-            }
-        } // End propagation
+            } // End propagation
+        }
 
 #ifdef DEBUG
         // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration
         print_status(iter, rows, columns, flow, num_particles, particle_locations, max_var);
 #endif
-
     } // End iterations
+
+    free(particle_f_locations);
 
     /*
      *
@@ -506,9 +553,7 @@ int main(int argc, char *argv[]) {
     printf("Time: %lf\n", ttotal);
 
     /* 6.2. Results: Statistics */
-    printf("Result: %d, %d",
-           iter - 1,
-           max_var);
+    printf("Result: %d, %d", iter - 1, max_var);
     int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
     int ind;
     for (ind = 0; ind < 6; ind++)
@@ -528,3 +573,49 @@ int main(int argc, char *argv[]) {
     /* 8. End */
     return 0;
 }
+
+// for (int thread = 0; thread < THREADS_SIZE; thread++) {
+//     wave_front_args[thread].iter = iter;
+//     wave_front_args[thread].wave_front = wave_front;
+//     pthread_create(
+//         threads + thread,
+//         NULL,
+//         pthread_wave_front,
+//         wave_front_args + thread);
+// }
+//
+// int *max_vars[THREADS_SIZE];
+// for (int thread = 0; thread < THREADS_SIZE; thread++)
+//     pthread_join(threads[thread], (void **)(max_vars + thread));
+//
+// for (int thread = 0; thread < THREADS_SIZE; thread++)
+//     if (*max_vars[thread] > max_var)
+//         max_var = *max_vars[thread];
+
+// if (iter % STEPS == 1) {
+//     for (int thread = 0; thread < THREADS_SIZE; thread++) {
+//         wave_front_args[thread].iter = iter;
+//         pthread_create(
+//             threads + thread,
+//             NULL,
+//             pthread_wave_front,
+//             wave_front_args + thread);
+//     }
+//
+//     int *max_vars[THREADS_SIZE];
+//     for (int thread = 0; thread < THREADS_SIZE; thread++)
+//         pthread_join(threads[thread], (void **)(max_vars + thread));
+//
+//     for (int thread = 0; thread < THREADS_SIZE; thread++)
+//         if (*max_vars[thread] > max_var)
+//             max_var = *max_vars[thread];
+// }
+// for (int thread = 0; thread < THREADS_SIZE; thread++)
+//     pthread_create(
+//         threads + thread,
+//         NULL,
+//         pthread_annotate_position,
+//         annotate_particles_args + thread);
+//
+// for (int thread = 0; thread < THREADS_SIZE; thread++)
+//     pthread_join(threads[thread], NULL);
