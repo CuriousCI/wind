@@ -3,17 +3,19 @@
 run_benchmark=false
 run_perf=false
 run_valgrind=false
+run_cuda=false
 
-while getopts ":pvb" opt; do
+while getopts ":pvbc" opt; do
   case $opt in
     p) run_perf=true;;
     v) run_valgrind=true;;
     b) run_benchmark=true;;
+    c) run_cuda=true;;
   esac
 done
 
-rows=100
-columns=100
+rows=200
+columns=150
 max_iter=3710
 var_threshold=0.0
 
@@ -45,7 +47,14 @@ if $run_benchmark; then
 
     ./wind_omp $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
 
+    if $run_cuda; then
+        make wind_cuda
+        ./wind_cuda $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
+    fi
+
     ./wind_pthread $rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3 | tee -a results 
+
+
     ./check_results
 
     rm results
@@ -113,7 +122,7 @@ if $run_valgrind; then
     done
 fi
 
-
+#TODO: cuda performance generation
 
 
 
