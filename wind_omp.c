@@ -373,7 +373,6 @@ int main(int argc, char *argv[]) {
     int max_var = INT_MAX;
     int iter;
     for (iter = 1; iter <= max_iter && max_var > var_threshold;) {
-
         // 4.1. Change inlet values each STEP iterations
         // if (iter % STEPS == 1) {
         for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {

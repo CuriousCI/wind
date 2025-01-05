@@ -55,15 +55,21 @@ wind_cuda: wind_cuda.cu
 wind_pthread: wind_pthread.c
 	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -lpthread -o $@
  
-wind_pthread_gdb: wind_pthread.c
-	$(CC) -Wall -pedantic -ggdb -g3 -lpthread $< $(LIBS) -o $@
+# DEBUGGING
 
 wind_seq_gdb: wind.c
 	$(CC) -Wall -pedantic -ggdb -g3 $< $(LIBS) -o $@
 
+wind_pthread_gdb: wind_pthread.c
+	$(CC) -Wall -pedantic -ggdb -g3 -lpthread $< $(LIBS) -o $@
+
+wind_omp_gdb: wind_omp.c
+	$(CC) -Wall -pedantic -ggdb -g3 $(OMPFLAG) $< $(LIBS) -o $@
+	# $(CC) -Wall -pedantic -ggdb -g3 $< $(LIBS) -o $@
+
 # Remove the target files
 clean:
-	rm -rf $(OBJS) gdb wind_pthread
+	rm -rf $(OBJS) wind_pthread wind_pthread_gdb wind_seq_gdb
 
 # Compile in debug mode
 debug:
