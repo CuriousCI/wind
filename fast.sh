@@ -16,13 +16,13 @@ while getopts ":pvbcs" opt; do
   esac
 done
 
-rows=200
-columns=200
-max_iter=1000
+rows=200000
+columns=1000
+max_iter=300
 var_threshold=0.0
 
 inlet_pos=0
-inlet_size=55
+inlet_size=20
 
 particles_f_band_pos=1
 particles_f_band_size=0
@@ -82,6 +82,8 @@ if $run_stats; then
 fi
 
 if $run_benchmark; then
+    args="$rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3"
+
     make wind_seq wind_mpi wind_omp wind_pthread
     if $run_cuda; then 
         make wind_cuda 
@@ -100,11 +102,14 @@ if $run_benchmark; then
 fi
 
 if $run_perf; then 
+    args="$rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3"
+    # bonus="-e cycles,r10e,r1b1,backend-stalled-cycles,frontend-stalled-cycles"
+    bonus="-e cycles,r10e,r1b1,stalled-cycles-backend,stalled-cycles-frontend"
     make wind_seq wind_pthread wind_omp
 
-    perf stat ./wind_seq $args
-    perf stat ./wind_omp $args 
-    perf stat ./wind_pthread $args 
+    perf stat $bonus ./wind_seq $args 
+    perf stat $bonus ./wind_omp $args 
+    perf stat $bonus ./wind_pthread $args 
 fi
 
 if $run_valgrind; then
@@ -170,14 +175,4 @@ if $run_valgrind; then
     done
 fi
 
-#TODO: cuda performance generation
-
-
-# for rng1, rng2, rng3 in ..., prime number steps and prime number start, or just list of prime numbers
-# for size in $(seq 10 10 40);
-# do
-# it would be nice to extract time from output
-# short_rnd1=5901
-# short_rnd2=1242
-# short_rnd3=965
 # -np 6 --oversubscribe

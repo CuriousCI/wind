@@ -352,22 +352,11 @@ int main(int argc, char *argv[]) {
      */
 
     /* 3. Initialization */
-    flow = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
-    flow_copy = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
-    particle_locations = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
+    flow = calloc(rows * columns, sizeof(int));
+    flow_copy = calloc(rows * columns, sizeof(int));
+    particle_locations = calloc(rows * columns, sizeof(int));
 
-    if (flow == NULL || flow_copy == NULL || particle_locations == NULL) {
-        fprintf(stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns);
-        exit(EXIT_FAILURE);
-    }
-
-    for (i = 0; i < rows; i++) {
-        for (j = 0; j < columns; j++) {
-            accessMat(flow, i, j) = 0;
-            accessMat(flow_copy, i, j) = 0;
-            accessMat(particle_locations, i, j) = 0;
-        }
-    }
+    int num_particles_f = num_particles - num_particles_m_band;
 
     /* 4. Simulation */
     int max_var = INT_MAX;
@@ -392,36 +381,22 @@ int main(int argc, char *argv[]) {
 #ifdef MODULE2
 #ifdef MODULE3
         // 4.2. Particles movement each STEPS iterations
-        // if (iter % STEPS == 1) {
         // Clean particle positions
-        for (i = 0; i <= iter && i < rows; i++)
-            for (j = 0; j < columns; j++)
-                accessMat(particle_locations, i, j) = 0;
-
-        int num_particles_f = num_particles - num_particles_m_band;
+        memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
 
 #pragma omp parallel for num_threads(8) firstprivate(rows) firstprivate(columns) schedule(static, 1)
         for (int particle = num_particles_f; particle < num_particles; particle++)
             move_particle(flow, particles, particle, rows, columns);
 
-        // int mass = particles[particle].mass;
-        // Fixed particles
-        // if (mass == 0)
-        //     continue;
-        // Movable particles
-
         // Annotate position
-        // #pragma omp parallel for num_threads(8) schedule(guided)
         for (particle = 0; particle < num_particles; particle++) {
             accessMat(particle_locations,
                       particles[particle].pos_row / PRECISION,
                       particles[particle].pos_col / PRECISION) += 1;
         }
-        // } // End particles movements
 #endif // MODULE3
 
         // 4.3. Effects due to particles each STEPS iterations
-        // if (iter % STEPS == 1) {
         int particle;
 #pragma omp parallel for num_threads(8)
         for (particle = 0; particle < num_particles; particle++) {
@@ -432,7 +407,6 @@ int main(int argc, char *argv[]) {
             particles[particle].old_flow = accessMat(flow, row, col);
         }
 
-        // #pragma omp parallel for num_threads(8)
         for (particle = 0; particle < num_particles; particle++) {
             int row = particles[particle].pos_row / PRECISION;
             int col = particles[particle].pos_col / PRECISION;
@@ -452,7 +426,6 @@ int main(int argc, char *argv[]) {
             else
                 accessMat(flow, row - 1, col) += back / 4;
         }
-        // } // End effects
 #endif // MODULE2
 
         for (int wave_front = 1; wave_front <= STEPS && iter <= max_iter && max_var > var_threshold; wave_front++, iter++) {
@@ -460,50 +433,19 @@ int main(int argc, char *argv[]) {
                 max_var = 0;
 
             // 4.4. Copy data in the ancillary structure
-            // TODO: One big memcpy or multiple small only on the udpated rows? This could speedup!
             memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns * sizeof(int));
 
             // 4.5.2. Execute propagation on the wave fronts
-            // if (wave > iter)
-            //     break;
-
             int stop = iter + 1 <= rows ? iter + 1 : rows;
-            // #pragma omp parallel for num_threads(8) schedule(static, 1)
-            for (int wave = wave_front; wave < stop; wave += STEPS) {
-                for (int col = 0; col < columns; col++) {
+
+            for (int col = 0; col < columns; col++) {
+                for (int wave = wave_front; wave < stop; wave += STEPS) {
                     int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
                     if (var > max_var)
                         max_var = var;
                 }
-            } // End propagation
+            }
         }
-
-        // // 4.4. Copy data in the ancillary structure
-        // for (i = 0; i < iter && i < rows; i++)
-        //     for (j = 0; j < columns; j++)
-        //         accessMat(flow_copy, i, j) = accessMat(flow, i, j);
-        //
-        // // 4.5. Propagation stage
-        // // 4.5.1. Initialize data to detect maximum variability
-        // if (iter % STEPS == 1)
-        //     max_var = 0;
-        //
-        // // 4.5.2. Execute propagation on the wave fronts
-        // int wave_front = iter % STEPS;
-        // if (wave_front == 0)
-        //     wave_front = STEPS;
-        // int wave;
-        // for (wave = wave_front; wave < rows; wave += STEPS) {
-        //     if (wave > iter)
-        //         continue;
-        //     // #pragma omp parallel for num_threads(1)
-        //     for (int col = 0; col < columns; col++) {
-        //         int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
-        //         if (var > max_var) {
-        //             max_var = var;
-        //         }
-        //     }
-        // } // End propagation
 
 #ifdef DEBUG
         // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration

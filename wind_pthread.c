@@ -69,18 +69,20 @@ int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int
     if (skip_particles && accessMat(particle_locations, row, col) != 0)
         return 0;
 
-    // Update if border left
-    if (col == 0) {
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col + 1)) / 4;
+    int new_flow = accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2,
+        terms = 3;
+
+    if (col > 0) {
+        new_flow += accessMat(flow_copy, row - 1, col - 1);
+        terms++;
     }
-    // Update if border right
-    if (col == columns - 1) {
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col - 1)) / 4;
+
+    if (col < columns - 1) {
+        new_flow += accessMat(flow_copy, row - 1, col + 1);
+        terms++;
     }
-    // Update in central part
-    if (col > 0 && col < columns - 1) {
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col - 1) + accessMat(flow_copy, row - 1, col + 1)) / 5;
-    }
+
+    accessMat(flow, row, col) = new_flow / terms;
 
     // Return flow variation at this position
     return abs(accessMat(flow_copy, row, col) - accessMat(flow, row, col));
@@ -97,13 +99,8 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         int row = particles[particle].pos_row / PRECISION;
         int col = particles[particle].pos_col / PRECISION;
         int pressure = accessMat(flow, row - 1, col);
-        int left = 0, right = 0;
-
-        if (col > 0)
-            left = pressure - accessMat(flow, row - 1, col - 1);
-
-        if (col < columns - 1)
-            right = pressure - accessMat(flow, row - 1, col + 1);
+        int left = col > 0 ? pressure - accessMat(flow, row - 1, col - 1) : 0,
+            right = col < columns - 1 ? pressure - accessMat(flow, row - 1, col + 1) : 0;
 
         int flow_row = (int)((float)pressure / particles[particle].mass * PRECISION);
         int flow_col = (int)((float)(right - left) / particles[particle].mass * PRECISION);
@@ -113,24 +110,18 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         particles[particle].speed_col = (particles[particle].speed_col + flow_col) / 2;
 
         // Movement
-        particles[particle].pos_row = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
-        particles[particle].pos_col = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
+        particles[particle].pos_row += particles[particle].speed_row / STEPS / 2;
+        particles[particle].pos_col += particles[particle].speed_col / STEPS / 2;
 
         // Control limits
         if (particles[particle].pos_row >= PRECISION * rows)
             particles[particle].pos_row = PRECISION * rows - 1;
         if (particles[particle].pos_col < 0)
             particles[particle].pos_col = 0;
-        if (particles[particle].pos_col >= PRECISION * columns)
+        else if (particles[particle].pos_col >= PRECISION * columns)
             particles[particle].pos_col = PRECISION * columns - 1;
     }
 }
-
-// if (col == 0)
-//     left = 0;
-// else
-//     right = 0;
-// else
 
 void scatter(int total, int pool_size, int *displs, int *counts) {
     int offset = 0,
@@ -153,11 +144,41 @@ typedef struct {
 
 void *move_particle_routine(void *arg) {
     move_particle_args_t args = *(move_particle_args_t *)arg;
-
     for (int particle = args.displ; particle < args.displ + args.count; particle++)
         move_particle(args.flow, args.particles, particle, args.rows, args.columns);
 
     return NULL;
+}
+
+typedef struct {
+    size_t displ, count;
+    int iter, max_iter, var_threshold, rows, columns, *flow, *flow_copy, *particle_locations;
+} propag_wave_front_args_t;
+
+void *propag_wave_front_routine(void *arg) {
+    propag_wave_front_args_t args = *(propag_wave_front_args_t *)arg;
+
+    int max_var = INT_MAX;
+
+    for (int block = args.displ; block < args.count + args.displ; block++) {
+        for (int wave_front = 1;
+             wave_front <= STEPS && args.iter <= args.max_iter && max_var > args.var_threshold;
+             wave_front++, args.iter++) {
+            if (wave_front == 1)
+                max_var = 0;
+
+            int wave = block * STEPS + wave_front;
+            for (int col = 0; col < args.columns; col++) {
+                int var = update_flow(args.flow, args.flow_copy, args.particle_locations, wave, col, args.columns, 1);
+                if (var > max_var)
+                    max_var = var;
+            }
+        }
+    }
+
+    int *max = malloc(sizeof(int));
+    *max = max_var;
+    return (void *)max;
 }
 
 typedef struct {
@@ -414,16 +435,38 @@ int main(int argc, char *argv[]) {
                 particles};
     }
 
-    update_old_flow_args_t update_old_flow_args[THREADS_SIZE];
-    for (int thread = 0; thread < THREADS_SIZE; thread++)
-        update_old_flow_args[thread] = (update_old_flow_args_t){
-            particles_displs[thread],
-            particles_counts[thread],
-            columns,
-            flow,
-            flow_copy,
-            particle_locations,
-            particles};
+    // propag_wave_front_args_t propag_wave_front_args[THREADS_SIZE];
+    // {
+    //     int blocks_displs[THREADS_SIZE],
+    //         blocks_counts[THREADS_SIZE];
+    //
+    //     scatter(rows / STEPS, THREADS_SIZE, blocks_displs, blocks_counts);
+    //
+    //     for (int thread = 0; thread < THREADS_SIZE; thread++)
+    //         propag_wave_front_args[thread] = (propag_wave_front_args_t){
+    //             blocks_displs[thread],
+    //             blocks_counts[thread],
+    //             0,
+    //             max_iter,
+    //             var_threshold,
+    //             rows,
+    //             columns,
+    //             flow,
+    //             flow_copy,
+    //             particle_locations,
+    //         };
+    // }
+
+    // update_old_flow_args_t update_old_flow_args[THREADS_SIZE];
+    // for (int thread = 0; thread < THREADS_SIZE; thread++)
+    //     update_old_flow_args[thread] = (update_old_flow_args_t){
+    //         particles_displs[thread],
+    //         particles_counts[thread],
+    //         columns,
+    //         flow,
+    //         flow_copy,
+    //         particle_locations,
+    //         particles};
 
     /* 4. Simulation */
     int max_var = INT_MAX;
@@ -450,6 +493,7 @@ int main(int argc, char *argv[]) {
         // memcpy(particle_locations, particle_f_locations, rows * columns * sizeof(int));
         // memcpy(particle_locations, particle_f_locations, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
         // memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
+
         for (i = 0; i <= iter && i < rows; i++)
             for (j = 0; j < columns; j++)
                 accessMat(particle_locations, i, j) = 0;
@@ -506,12 +550,33 @@ int main(int argc, char *argv[]) {
                 accessMat(flow, row - 1, col - 1) += back / 4;
             else
                 accessMat(flow, row - 1, col) += back / 4;
+
             if (col < columns - 1)
                 accessMat(flow, row - 1, col + 1) += back / 4;
             else
                 accessMat(flow, row - 1, col) += back / 4;
         }
 #endif // MODULE2
+
+        // for (int thread = 0; thread < THREADS_SIZE; thread++) {
+        //     propag_wave_front_args[thread].iter = iter;
+        //
+        //     pthread_create(
+        //         threads + thread,
+        //         NULL,
+        //         propag_wave_front_routine,
+        //         propag_wave_front_args + thread);
+        // }
+        //
+        // int *max;
+        // for (int thread = 0; thread < THREADS_SIZE; thread++) {
+        //     pthread_join(threads[thread], (void **)&max);
+        //     if (*max > max_var)
+        //         max_var = *max;
+        // }
+        //
+        // iter += STEPS;
+        // memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns * sizeof(int));
 
         for (int wave_front = 1; wave_front <= STEPS && iter <= max_iter && max_var > var_threshold; wave_front++, iter++) {
             if (wave_front == 1)
