@@ -1,7 +1,7 @@
 /*
  * Simplified simulation of air flow in a wind tunnel
  *
- * OpemMP version
+ * MPI version
  *
  * Computacion Paralela, Grado en Informatica (Universidad de Valladolid)
  * 2020/2021
@@ -20,8 +20,9 @@
 #include <string.h>
 #include <sys/time.h>
 
-/* Headers for the OpenMP assignment versions */
-#include <omp.h>
+/* Headers for the MPI assignment versions */
+#include <mpi.h>
+#include <stddef.h>
 
 #define PRECISION 10000
 #define STEPS 8
@@ -76,13 +77,17 @@ int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int
              accessMat(flow_copy, row - 1, col) * 2 +
              accessMat(flow_copy, row - 1, col + 1)) /
             4;
-    } else if (col == columns - 1) { // Update if border right
+    }
+    // Update if border right
+    if (col == columns - 1) {
         accessMat(flow, row, col) =
             (accessMat(flow_copy, row, col) +
              accessMat(flow_copy, row - 1, col) * 2 +
              accessMat(flow_copy, row - 1, col - 1)) /
             4;
-    } else { // Update in central part
+    }
+    // Update in central part
+    if (col > 0 && col < columns - 1) {
         accessMat(flow, row, col) =
             (accessMat(flow_copy, row, col) +
              accessMat(flow_copy, row - 1, col) * 2 +
@@ -204,6 +209,38 @@ void show_usage(char *program_name) {
     fprintf(stderr, "\n");
 }
 
+typedef struct {
+    int displ, count;
+} sect_t;
+
+sect_t sector(int total, int comm_size, int rank) {
+    int offset = 0,
+        proc_items = total / comm_size,
+        left_items = total % comm_size,
+        displ,
+        count;
+
+    for (int thread = 0; thread <= rank; thread++) {
+        displ = offset;
+        count = proc_items + (thread < left_items);
+        offset += count;
+    }
+
+    return (sect_t){displ, count};
+}
+
+void scatter_all(int total, int comm_size, int *displs, int *counts) {
+    int offset = 0,
+        rank_items = total / comm_size,
+        left_items = total % comm_size;
+
+    for (int rank = 0; rank < comm_size; rank++) {
+        displs[rank] = offset;
+        counts[rank] = rank_items + (rank < left_items);
+        offset += counts[rank];
+    }
+}
+
 /*
  * MAIN PROGRAM
  */
@@ -215,9 +252,9 @@ int main(int argc, char *argv[]) {
     int var_threshold; // Threshold of variability to continue the simulation
     int rows, columns; // Cultivation area sizes
 
-    int *flow;               // Wind tunnel air-flow
-    int *flow_copy;          // Wind tunnel air-flow (ancillary copy)
-    int *particle_locations; // To quickly locate places with particles
+    int *flow = NULL;               // Wind tunnel air-flow
+    int *flow_copy = NULL;          // Wind tunnel air-flow (ancillary copy)
+    int *particle_locations = NULL; // To quickly locate places with particles
 
     int inlet_pos;             // First position of the inlet
     int inlet_size;            // Inlet size
@@ -233,12 +270,17 @@ int main(int argc, char *argv[]) {
     int num_particles;   // Number of particles
     Particle *particles; // List to store cells information
 
+    /* 0. Initialize MPI */
+    MPI_Init(&argc, &argv);
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
     /* 1. Read simulation arguments */
     /* 1.1. Check minimum number of arguments */
     if (argc < 16) {
         fprintf(stderr, "-- Error: Not enough arguments when reading configuration from the command line\n\n");
         show_usage(argv[0]);
-        exit(EXIT_FAILURE);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
     /* 1.2. Read simulation area sizes, maximum number of iterations and threshold */
@@ -269,7 +311,7 @@ int main(int argc, char *argv[]) {
         if ((argc - 16) % 3 != 0) {
             fprintf(stderr, "-- Error in number of fixed position particles\n\n");
             show_usage(argv[0]);
-            exit(EXIT_FAILURE);
+            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
         // Get number of fixed particles
         num_particles = (argc - 16) / 3;
@@ -285,7 +327,7 @@ int main(int argc, char *argv[]) {
         particles = (Particle *)malloc(num_particles * sizeof(Particle));
         if (particles == NULL) {
             fprintf(stderr, "-- Error allocating particles structure for size: %d\n", num_particles);
-            exit(EXIT_FAILURE);
+            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
     } else
         particles = NULL;
@@ -325,24 +367,27 @@ int main(int argc, char *argv[]) {
 
 #ifdef DEBUG
     // 1.8. Print arguments
-    printf("Arguments, Rows: %d, Columns: %d, max_iter: %d, threshold: %f\n", rows, columns, max_iter, (float)var_threshold / PRECISION);
-    printf("Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  Band of moving particles: %d, %d, %f\n", inlet_pos, inlet_size, particles_f_band_pos, particles_f_band_size, particles_f_density, particles_m_band_pos, particles_m_band_size, particles_m_density);
-    printf("Arguments, Init Random Sequence: %hu,%hu,%hu\n", random_seq[0], random_seq[1], random_seq[2]);
-    printf("Particles: %d\n", num_particles);
-    for (int particle = 0; particle < num_particles; particle++) {
-        printf("Particle[%d] = { %d, %d, %d, %d, %d, %d }\n",
-               particle,
-               particles[particle].pos_row,
-               particles[particle].pos_col,
-               particles[particle].mass,
-               particles[particle].resistance,
-               particles[particle].speed_row,
-               particles[particle].speed_col);
+    if (rank == 0) {
+        printf("Arguments, Rows: %d, Columns: %d, max_iter: %d, threshold: %f\n", rows, columns, max_iter, (float)var_threshold / PRECISION);
+        printf("Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  Band of moving particles: %d, %d, %f\n", inlet_pos, inlet_size, particles_f_band_pos, particles_f_band_size, particles_f_density, particles_m_band_pos, particles_m_band_size, particles_m_density);
+        printf("Arguments, Init Random Sequence: %hu,%hu,%hu\n", random_seq[0], random_seq[1], random_seq[2]);
+        printf("Particles: %d\n", num_particles);
+        for (int particle = 0; particle < num_particles; particle++) {
+            printf("Particle[%d] = { %d, %d, %d, %d, %d, %d }\n",
+                   particle,
+                   particles[particle].pos_row,
+                   particles[particle].pos_col,
+                   particles[particle].mass,
+                   particles[particle].resistance,
+                   particles[particle].speed_row,
+                   particles[particle].speed_col);
+        }
+        printf("\n");
     }
-    printf("\n");
 #endif // DEBUG
 
     /* 2. Start global timer */
+    MPI_Barrier(MPI_COMM_WORLD);
     double ttotal = cp_Wtime();
 
     /*
@@ -351,123 +396,203 @@ int main(int argc, char *argv[]) {
      *
      */
 
-    /* 3. Initialization */
-    flow = calloc(rows * columns, sizeof(int));
-    flow_copy = calloc(rows * columns, sizeof(int));
-    particle_locations = calloc(rows * columns, sizeof(int));
+    // Declare variables used in later output
+    int max_var = INT_MAX;
+    int iter = 0;
+    int resultsA[6];
+    int resultsB[6];
+    int resultsC[6];
 
-    int num_particles_f = num_particles - num_particles_m_band;
-    int *fixed_particle_locations = calloc(rows * columns, sizeof(int));
-    for (int particle = 0; particle < num_particles_f; particle++)
-        accessMat(fixed_particle_locations, particles[particle].pos_row / PRECISION, particles[particle].pos_col / PRECISION)++;
+    // MPI Version: Eliminate this conditional to start doing the work in parallel
+    /*if (rank == 0) {*/
+
+    int size;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    /* 3. Initialization */
+    flow = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
+    flow_copy = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
+    particle_locations = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
+
+    int *particles_displs = malloc(size * sizeof(int)),
+        *particles_counts = malloc(size * sizeof(int));
+
+    scatter_all(num_particles, size, particles_displs, particles_counts);
+
+    if (flow == NULL || flow_copy == NULL || particle_locations == NULL) {
+        fprintf(stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+
+    for (i = 0; i < rows; i++) {
+        for (j = 0; j < columns; j++) {
+            accessMat(flow, i, j) = 0;
+            accessMat(flow_copy, i, j) = 0;
+            accessMat(particle_locations, i, j) = 0;
+        }
+    }
+
+    MPI_Datatype MPI_PARTICLE;
+
+    {
+        MPI_Aint addr[8], particle_t_displs[8] = {0};
+        int particle_t_block_lenghts[] = {1, 1, 1, 1, 1, 1, 1, 1};
+        MPI_Datatype particle_t_types[] = {MPI_UNSIGNED_CHAR, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+        Particle t = {0};
+
+        MPI_Get_address(&t.extra, addr);
+        MPI_Get_address(&t.pos_row, addr + 1);
+        MPI_Get_address(&t.pos_col, addr + 2);
+        MPI_Get_address(&t.mass, addr + 3);
+        MPI_Get_address(&t.resistance, addr + 4);
+        MPI_Get_address(&t.speed_row, addr + 5);
+        MPI_Get_address(&t.speed_col, addr + 6);
+        MPI_Get_address(&t.old_flow, addr + 7);
+
+        for (int i = 1; i < 8; i++)
+            particles_displs[i] = addr[i] - addr[0];
+
+        MPI_Type_create_struct(
+            8,
+            particle_t_block_lenghts,
+            particle_t_displs,
+            particle_t_types,
+            &MPI_PARTICLE);
+        MPI_Type_commit(&MPI_PARTICLE);
+    }
 
     /* 4. Simulation */
-    int max_var = INT_MAX, iter;
     for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
+
         // 4.1. Change inlet values each STEP iterations
-        if (iter % STEPS == 1) {
-            for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
-                double phase = iter / STEPS * (M_PI / 4);
-                double phase_step = M_PI / 2 / inlet_size;
-                double pressure_level = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
-                double noise = 0.5 - erand48(random_seq);
-                accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
-            }
-        } // End inlet update
+        if (rank == 0)
+            if (iter % STEPS == 1) {
+                for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
+                    // 4.1.1. Change the fans phase
+                    double phase = iter / STEPS * (M_PI / 4);
+                    double phase_step = M_PI / 2 / inlet_size;
+                    double pressure_level = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
+
+                    // 4.1.2. Add some random noise
+                    double noise = 0.5 - erand48(random_seq);
+
+                    // 4.1.3. Store level in the first row of the ancillary structure
+                    accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
+                }
+            } // End inlet update
+
+        /*MPI_Bcast(flow, columns, MPI_INT, 0, MPI_COMM_WORLD);*/
 
 #ifdef MODULE2
 #ifdef MODULE3
         // 4.2. Particles movement each STEPS iterations
-        // Clean particle positions
-        if (iter % STEPS == 1) {
-            memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
+        if (rank == 0)
+            if (iter % STEPS == 1) {
+                // Clean particle positions
+                for (i = 0; i <= iter && i < rows; i++)
+                    for (j = 0; j < columns; j++)
+                        accessMat(particle_locations, i, j) = 0;
 
-#pragma omp parallel for num_threads(6) firstprivate(rows) firstprivate(columns) schedule(static, 1)
-            for (int particle = num_particles_f; particle < num_particles; particle++)
-                move_particle(flow, particles, particle, rows, columns);
+                for (int particle = num_particles - num_particles_m_band; particle < num_particles; particle++)
+                    move_particle(flow, particles, particle, rows, columns);
+                /*for (int particle = particles_displs[rank]; particle < particles_displs[rank] + particles_counts[rank]; particle++) {*/
+                /*int mass = particles[particle].mass;*/
+                // Fixed particles
+                /*if (mass == 0)*/
+                /*    continue;*/
+                // Movable particles
 
-            // Annotate position
-            memcpy(particle_locations, fixed_particle_locations, rows * columns * sizeof(int));
-            for (int particle = num_particles_f; particle < num_particles; particle++)
-                accessMat(particle_locations,
-                          particles[particle].pos_row / PRECISION,
-                          particles[particle].pos_col / PRECISION)++;
-        }
+                /*MPI_Gatherv(*/
+                /*    (rank == 0 ? MPI_IN_PLACE : particles),*/
+                /*    particles_counts[rank],*/
+                /*    MPI_PARTICLE,*/
+                /*    particles,*/
+                /*    particles_counts,*/
+                /*    particles_displs,*/
+                /*    MPI_PARTICLE,*/
+                /*    0,*/
+                /*    MPI_COMM_WORLD);*/
 
+                // Annotate position
+                if (rank == 0)
+                    for (int particle = 0; particle < num_particles; particle++) {
+                        /*for (particle = particles_displs[rank]; particle < particles_displs[rank] + particles_counts[rank]; particle++) {*/
+                        /*for (particle = 0; particle < num_particles; particle++) */
+                        accessMat(particle_locations,
+                                  particles[particle].pos_row / PRECISION,
+                                  particles[particle].pos_col / PRECISION) += 1;
+                    }
+
+                /*MPI_Reduce( (rank == 0 ? MPI_IN_PLACE : particle_locations), particle_locations, rows * columns, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);*/
+
+            } // End particles movements
 #endif // MODULE3
 
         // 4.3. Effects due to particles each STEPS iterations
-        if (iter % STEPS == 1) {
-#pragma omp parallel for num_threads(6)
-            for (int particle = 0; particle < num_particles; particle++) {
-                int row = particles[particle].pos_row / PRECISION;
-                int col = particles[particle].pos_col / PRECISION;
+        if (rank == 0)
+            if (iter % STEPS == 1) {
+                int particle;
+                for (particle = 0; particle < num_particles; particle++) {
+                    int row = particles[particle].pos_row / PRECISION;
+                    int col = particles[particle].pos_col / PRECISION;
 
-                update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
-                particles[particle].old_flow = accessMat(flow, row, col);
-            }
-        }
+                    update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
+                    particles[particle].old_flow = accessMat(flow, row, col);
+                }
+                for (particle = 0; particle < num_particles; particle++) {
+                    int row = particles[particle].pos_row / PRECISION;
+                    int col = particles[particle].pos_col / PRECISION;
+                    int resistance = particles[particle].resistance;
 
-        if (iter % STEPS == 1) {
-            /*#pragma omp parallel for num_threads(6)*/
-            for (particle = 0; particle < num_particles; particle++) {
-                int row = particles[particle].pos_row / PRECISION;
-                int col = particles[particle].pos_col / PRECISION;
-                int resistance = particles[particle].resistance;
+                    int back = 1;
+                    if (accessMat(particle_locations, row, col) > 0)
+                        back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
+                    accessMat(flow, row, col) -= back;
 
-                int back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
-                accessMat(flow, row, col) -= back;
+                    accessMat(flow, row - 1, col) += back / 2;
 
-                accessMat(flow, row - 1, col) += back / 2;
-
-                if (col > 0)
-                    accessMat(flow, row - 1, col - 1) += back / 4;
-                else
-                    accessMat(flow, row - 1, col) += back / 4;
-                if (col < columns - 1)
-                    accessMat(flow, row - 1, col + 1) += back / 4;
-                else
-                    accessMat(flow, row - 1, col) += back / 4;
-            }
-        }
+                    if (col > 0)
+                        accessMat(flow, row - 1, col - 1) += back / 4;
+                    else
+                        accessMat(flow, row - 1, col) += back / 4;
+                    if (col < columns - 1)
+                        accessMat(flow, row - 1, col + 1) += back / 4;
+                    else
+                        accessMat(flow, row - 1, col) += back / 4;
+                }
+            } // End effects
+#endif // MODULE2
 
         // 4.4. Copy data in the ancillary structure
-        if (iter % STEPS == 1)
-            memcpy(flow_copy, flow, rows * columns * sizeof(int));
-        else {
-            int wf = (iter - 1) % STEPS;
-            if (wf == 0)
-                wf = STEPS;
+        if (rank == 0) {
+            for (i = 0; i < iter && i < rows; i++)
+                for (j = 0; j < columns; j++)
+                    accessMat(flow_copy, i, j) = accessMat(flow, i, j);
+
+            // 4.5. Propagation stage
+            // 4.5.1. Initialize data to detect maximum variability
+            if (iter % STEPS == 1)
+                max_var = 0;
+
+            // 4.5.2. Execute propagation on the wave fronts
+            int wave_front = iter % STEPS;
+            if (wave_front == 0)
+                wave_front = STEPS;
             int wave;
-            for (wave = wf; wave < rows; wave += STEPS) {
-                if (wave > iter - 1)
-                    break;
-                memcpy(flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int));
+            for (wave = wave_front; wave < rows; wave += STEPS) {
+                if (wave > iter)
+                    continue;
+                int col;
+                for (col = 0; col < columns; col++) {
+                    int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
+                    if (var > max_var) {
+                        max_var = var;
+                    }
+                }
             } // End propagation
         }
 
-        // 4.5. Propagation stage
-        // 4.5.1. Initialize data to detect maximum variability
-        if (iter % STEPS == 1)
-            max_var = 0;
-
-        // 4.5.2. Execute propagation on the wave fronts
-        int wave_front = iter % STEPS;
-        if (wave_front == 0)
-            wave_front = STEPS;
-        int wave;
-        for (wave = wave_front; wave < rows; wave += STEPS) {
-            if (wave > iter)
-                break;
-            int col;
-            for (col = 0; col < columns; col++) {
-                int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
-                if (var > max_var) {
-                    max_var = var;
-                }
-            }
-        } // End propagation
-#endif // MODULE2
+        /*MPI_Bcast(&max_var, 1, MPI_INT, 0, MPI_COMM_WORLD);*/
 
 #ifdef DEBUG
         // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration
@@ -476,6 +601,21 @@ int main(int argc, char *argv[]) {
 
     } // End iterations
 
+    // MPI: Fill result arrays used for later output
+    int ind;
+    for (ind = 0; ind < 6; ind++)
+        resultsA[ind] = accessMat(flow, STEPS - 1, ind * columns / 6);
+
+    int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
+    for (ind = 0; ind < 6; ind++)
+        resultsB[ind] = accessMat(flow, res_row / 2, ind * columns / 6);
+
+    for (ind = 0; ind < 6; ind++)
+        resultsC[ind] = accessMat(flow, res_row, ind * columns / 6);
+
+    // MPI Version: Eliminate this conditional-end to start doing the work in parallel
+    /*}*/
+
     /*
      *
      * STOP HERE: DO NOT CHANGE THE CODE BELOW THIS POINT
@@ -483,26 +623,28 @@ int main(int argc, char *argv[]) {
      */
 
     /* 5. Stop global timer */
+    MPI_Barrier(MPI_COMM_WORLD);
     ttotal = cp_Wtime() - ttotal;
 
     /* 6. Output for leaderboard */
-    printf("\n");
-    /* 6.1. Total computation time */
-    printf("Time: %lf\n", ttotal);
+    if (rank == 0) {
+        printf("\n");
+        /* 6.1. Total computation time */
+        printf("Time: %lf\n", ttotal);
 
-    /* 6.2. Results: Statistics */
-    printf("Result: %d, %d",
-           iter - 1,
-           max_var);
-    int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
-    int ind;
-    for (ind = 0; ind < 6; ind++)
-        printf(", %d", accessMat(flow, STEPS - 1, ind * columns / 6));
-    for (ind = 0; ind < 6; ind++)
-        printf(", %d", accessMat(flow, res_row / 2, ind * columns / 6));
-    for (ind = 0; ind < 6; ind++)
-        printf(", %d", accessMat(flow, res_row, ind * columns / 6));
-    printf("\n");
+        /* 6.2. Results: Statistics */
+        printf("Result: %d, %d",
+               iter - 1,
+               max_var);
+        int i;
+        for (i = 0; i < 6; i++)
+            printf(", %d", resultsA[i]);
+        for (i = 0; i < 6; i++)
+            printf(", %d", resultsB[i]);
+        for (i = 0; i < 6; i++)
+            printf(", %d", resultsC[i]);
+        printf("\n");
+    }
 
     /* 7. Free resources */
     free(flow);
@@ -511,25 +653,6 @@ int main(int argc, char *argv[]) {
     free(particles);
 
     /* 8. End */
+    MPI_Finalize();
     return 0;
 }
-
-/*for (int wave_front = 1; wave_front <= STEPS && iter <= max_iter && max_var > var_threshold; wave_front++, iter++) {*/
-/*    if (wave_front == 1)*/
-/*        max_var = 0;*/
-/**/
-/*    // 4.4. Copy data in the ancillary structure*/
-/*    memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns * sizeof(int));*/
-/**/
-/*    // 4.5.2. Execute propagation on the wave fronts*/
-/*    int stop = iter + 1 <= rows ? iter + 1 : rows;*/
-/**/
-/*    #pragma omp parallel for num_threads(6)*/
-/*    for (int col = 0; col < columns; col++) {*/
-/*        for (int wave = wave_front; wave < stop; wave += STEPS) {*/
-/*            int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);*/
-/*            if (var > max_var)*/
-/*                max_var = var;*/
-/*        }*/
-/*    }*/
-/*}*/

@@ -19,7 +19,7 @@ FLAGS=-O3 -Wall
 LIBS=-lm
 
 # Targets to build
-OBJS=wind_seq wind_omp wind_mpi wind_cuda
+OBJS=wind_seq wind_omp wind_mpi wind_cuda wind_pthread wind_pthread_2
 
 # Rules. By default show help
 help:
@@ -61,23 +61,24 @@ wind_pthread_2: wind_pthread_2.c
 # DEBUGGING
 
 wind_seq_debug: wind.c
-	$(CC) -Wall -pedantic -ggdb -g3 $< $(LIBS) -o $@
+	$(CC) -Wall -pedantic -ggdb3 $< $(LIBS) -o $@
+
+wind_mpi_debug: wind_mpi.c
+	$(MPICC) -Wall -pedantic -ggdb3 $< $(LIBS) -o $@
 
 wind_omp_debug: wind_omp.c
-	$(CC) -Wall -pedantic -ggdb -g3 $(OMPFLAG) $< $(LIBS) -o $@
+	$(CC) -Wall -pedantic -ggdb3 $(OMPFLAG) $< $(LIBS) -o $@
 	
 wind_pthread_debug: wind_pthread.c
-	$(CC) -Wall -pedantic -ggdb -g3 -lpthread $< $(LIBS) -o $@
+	$(CC) -Wall -pedantic -ggdb3 -lpthread $< $(LIBS) -o $@
 
 wind_pthread_2_debug: wind_pthread_2.c
-	$(CC) -Wall -pedantic -ggdb -g3 -lpthread $< $(LIBS) -o $@
+	$(CC) -Wall -pedantic -ggdb3 -lpthread $< $(LIBS) -o $@
 
 # Remove the target files
 clean:
-	rm -rf $(OBJS) wind_pthread wind_pthread_2 wind_seq_debug wind_omp_debug wind_pthread_debug wind_pthread_2_debug
+	rm -rf $(OBJS) wind_pthread wind_pthread_2 wind_seq_debug wind_omp_debug wind_pthread_debug wind_pthread_2_debug wind_mpi_debug *.txt
 
 # Compile in debug mode
 debug:
 	make DEBUG="-DDEBUG -g" FLAGS= all
-
-# DEBUGGING MPI # mpiexec –n 4 ./test : -n 1 ddd ./test : -n 1 ./test

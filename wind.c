@@ -448,7 +448,7 @@ int main(int argc, char *argv[]) {
 
 #ifdef DEBUG
         // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration
-        printf("\033[2J\033[H");
+        /*printf("\033[2J\033[H");*/
         print_status(iter, rows, columns, flow, num_particles, particle_locations, max_var);
         usleep(17 * 1000);
 #endif

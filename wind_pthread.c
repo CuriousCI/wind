@@ -24,7 +24,7 @@
 #define PRECISION 10000
 #define STEPS 8
 /* --- */
-#define THREADS_SIZE 4
+#define THREADS_SIZE 6
 
 /*
  * Student: Comment these macro definitions lines to eliminate modules
@@ -118,12 +118,12 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
             particles[particle].pos_row = PRECISION * rows - 1;
         if (particles[particle].pos_col < 0)
             particles[particle].pos_col = 0;
-        else if (particles[particle].pos_col >= PRECISION * columns)
+        if (particles[particle].pos_col >= PRECISION * columns)
             particles[particle].pos_col = PRECISION * columns - 1;
     }
 }
 
-void scatter(int total, int pool_size, int *displs, int *counts) {
+void sector(int total, int pool_size, int *displs, int *counts) {
     int offset = 0,
         proc_items = total / pool_size,
         left_items = total % pool_size;
@@ -414,7 +414,7 @@ int main(int argc, char *argv[]) {
 
     int particles_displs[THREADS_SIZE],
         particles_counts[THREADS_SIZE];
-    scatter(num_particles, THREADS_SIZE, particles_displs, particles_counts);
+    sector(num_particles, THREADS_SIZE, particles_displs, particles_counts);
 
     pthread_t threads[THREADS_SIZE];
 
@@ -423,7 +423,7 @@ int main(int argc, char *argv[]) {
         int particles_m_displs[THREADS_SIZE],
             particles_m_counts[THREADS_SIZE];
 
-        scatter(num_particles_m_band, THREADS_SIZE, particles_m_displs, particles_m_counts);
+        sector(num_particles_m_band, THREADS_SIZE, particles_m_displs, particles_m_counts);
 
         for (int thread = 0; thread < THREADS_SIZE; thread++)
             move_particle_args[thread] = (move_particle_args_t){
