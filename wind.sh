@@ -141,62 +141,192 @@ if $valgrind; then
 fi
 
 get_time="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n'"
+get_rest="awk 'NR==3 {printf \"%s \", \$2}' | tr -d '\n'" # TODO
+
+matrix_ratio() {
+    local prog=$1
+    local file=$2
+    local iter=$3
+
+    # 100000000000 rows=100000000 columns=10
+    particles_f_band_size=0 particles_m_band_size=0 inlet_size=0
+    echo "rows,columns,time" >> $file
+    for ((i=1; i<100000000; i*=2)); do
+        rows=$((100000000/i)) columns=$i
+        update_args
+
+        for ((j=0; j<$iter; j++)); do
+            echo "$prog - rows: $rows - columns: $columns - iter: $j"
+            echo -n "$rows,$columns, " >> $file 
+            eval $prog $args | eval $get_time >> $file
+            echo >> $file 
+        done
+    done
+}
+
+matrix_size() {
+    local prog=$1
+    local file=$2
+    local iter=$3
+
+    # 10000
+    particles_f_band_size=0 particles_m_band_size=0 inlet_size=0
+    echo "cells,time" >> $file
+    for ((i=1; i<10000; i*=2)); do
+        rows=$i columns=$i inlet_size=$i
+        update_args
+
+        for ((j=0; j<$iter; j++)); do
+            echo "$prog - rows: $rows - columns: $columns - iter: $j"
+            echo -n "$((rows*columns)), " >> $file 
+            eval $prog $args | eval $get_time >> $file
+            echo >> $file 
+        done
+    done
+}
+
+particles_m() {
+    local prog=$1
+    local file=$2
+    local iter=$3
+
+    particles_f_band_size=0 particles_m_band_size=$((rows-1))
+    echo "density,time" >> $file
+    for particles_m_density in $(seq 0 0.1 1); do
+        update_args
+        for ((j=0; j<$iter; j++)); do
+            echo "$prog - density: $particles_m_density - iter: $j"
+            echo -n "$particles_m_density," >> $file 
+            eval $prog $args | eval $get_time >> $file
+            echo >> $file 
+        done
+    done
+}
+
+particles_f() {
+    local prog=$1
+    local file=$2
+    local iter=$3
+
+    particles_f_band_size=$((rows-1)) particles_m_band_size=0
+    echo "density,time" >> $file
+    for particles_f_density in $(seq 0 0.1 1); do
+        update_args
+        for ((j=0; j<$iter; j++)); do
+            echo "$prog - density: $particles_f_density - iter: $j"
+            echo -n "$particles_f_density," >> $file 
+            eval $prog $args | eval $get_time >> $file
+            echo >> $file 
+        done
+    done
+}
+
+inlet_perf() {
+    local prog=$1
+    local file=$2
+    local iter=$3
+
+    particles_f_band_size=0 particles_m_band_size=0
+    echo "inlet_size,time" >> $file
+    for inlet_size in $(seq 0 100 $rows); do
+        update_args
+        for ((j=0; j<$iter; j++)); do
+            echo "$prog - inlet_size: $inlet_size - iter: $j"
+            echo -n "$inlet_size," >> $file 
+            eval $prog $args | eval $get_time >> $file
+            echo >> $file 
+        done
+    done
+}
+
+system() {
+    local prog=$1
+    local file=$2
+    local iter=$3
+
+    # 10000
+    echo "rows,time" >> $file
+    particles_f_density=0.5
+    particles_m_density=0.5
+    # 10000
+    for ((i=1; i<=4096; i*=2)); do
+    # for ((i=1; i<=2048; i*=2)); do
+        rows=$i columns=$i inlet_size=$i
+        particles_f_band_size=$((rows-1)) particles_m_band_size=$((rows-1)) inlet_size=$((rows-1))
+        update_args
+
+        for ((j=0; j<$iter; j++)); do
+            echo "$prog - rows: $rows - columns: $columns - iter: $j"
+            echo -n "$((rows)), " >> $file 
+            eval $prog $args | eval $get_time >> $file
+            echo >> $file 
+        done
+    done
+
+}
 
 if $scaling; then
     rm target/*.csv
     make wind_seq wind_mpi wind_omp wind_cuda wind_pthread wind_pthread_2
+    
+    iter=1
+    max_iter=100
 
-    # 100000000000 rows=100000000 columns=10
-    save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/matrix_dimensions.csv"
-    max_iter=10 particles_f_band_size=0 particles_m_band_size=0
-    echo "rows, cols, time"
-    for ((i=10; i<100000000; i*=2)); do
-        rows=$((100000000/i))
-        columns=$i
-        inlet_size=$rows
-        echo -e "\n\nrows: $rows, cols: $columns"
-        update_args
-        for ((j=0; j<1; j++)); do
-            echo "iter: $j"
-            echo -n "$rows, $columns, " >> target/matrix_dimensions.csv
-            ./wind_seq $args | eval $save
-            echo >> target/matrix_dimensions.csv
-        done
+    system ./wind_seq "target/system.seq.csv" $iter
+    for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=16; OMP_NUM_THREADS*=2)); do
+         system "OMP_STACKSIZE=999m OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" "target/system.omp.$OMP_NUM_THREADS.csv" $iter
     done
 
-    save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/particles_density.csv"
-    rows=3000 columns=3000 inlet_size=$rows
-    max_iter=10 particles_f_band_size=0 particles_m_band_size=$((rows-1))
-    echo "density,time" >> target/particles_density.csv
-    for density in $(seq 0 0.1 1); do
-        echo -e "\n\ndensity: $density"
-        particles_m_density=$density
-        update_args
-        for ((j=0; j<1; j++)); do
-            echo "iter: $j"
-            echo -n "$density," >> target/particles_density.csv
-            ./wind_seq $args | eval $save
-            echo >> target/particles_density.csv
-        done
-    done
+    # ulimit -s unlimited
+    system "OMP_STACKSIZE=999m OMP_NUM_THREADS=6 ./wind_omp" "target/system.omp.6.csv" $iter
 
-    save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/fixed_density.csv"
-    rows=3000 columns=3000 inlet_size=$rows
-    max_iter=10 particles_f_band_size=$((rows-1)) particles_m_band_size=0
-    echo "density,time" >> target/fixed_density.csv
-    for density in $(seq 0 0.1 1); do
-        echo -e "\n\ndensity: $density"
-        particles_f_density=$density
-        update_args
-        for ((j=0; j<1; j++)); do
-            echo "iter: $j"
-            echo -n "$density," >> target/fixed_density.csv
-            ./wind_seq $args | eval $save
-            echo >> target/fixed_density.csv
-        done
-    done
+    # matrix_ratio ./wind_seq "target/matrix_ratio.seq.csv" $iter
+    # matrix_size ./wind_seq "target/matrix_size.seq.csv" $iter
 
+    # OMP_NUM_THREADS=1
+    # matrix_ratio ./wind_omp "target/matrix_ratio.omp.$OMP_NUM_THREADS.csv" $iter
+    #
+
+    # for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=16; OMP_NUM_THREADS*=2)); do
+    #     echo $OMP_NUM_THREADS
+    #      matrix_size "OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" "target/matrix_size.omp.$OMP_NUM_THREADS.csv" $iter
+    # done
+    #
+    # rows=1000 columns=1000 inlet_size=$rows max_iter=100
+    # particles_m ./wind_seq "target/particles_m_density.seq.csv" $iter
+    # particles_f ./wind_seq "target/particles_f_density.seq.csv" $iter 
+    #
+    # for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=16; OMP_NUM_THREADS*=2)); do
+    #     echo $OMP_NUM_THREADS
+    #     particles_m "OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" "target/particles_m_density.omp.$OMP_NUM_THREADS.csv" $iter
+    #     particles_f "OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" "target/particles_f_density.omp.$OMP_NUM_THREADS.csv" $iter 
+    # done
+
+    # matrix_size ./wind_omp 'target/matrix_size.omp.$OMP_NUM_THREADS.csv' $iter
+    # inlet_perf ./wind_seq 'target/inlet_perf.seq.csv' $iter 
+fi
+
+
+    # for OMP_NUM_THREADS in $(seq 1 1 16); do
     # inlet size performance
+    
+    # save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/matrix_dimensions.csv"
+    # max_iter=10 particles_f_band_size=0 particles_m_band_size=0
+    # echo "rows,cols,time"
+    # for ((i=10; i<100000000; i*=2)); do
+    #     rows=$((100000000/i))
+    #     columns=$i
+    #     inlet_size=$rows
+    #     echo -e "\n\nrows: $rows, cols: $columns"
+    #     update_args
+    #     for ((j=0; j<1; j++)); do
+    #         echo "iter: $j"
+    #         echo -n "$rows, $columns, " >> target/matrix_dimensions.csv
+    #         ./wind_seq $args | eval $save
+    #         echo >> target/matrix_dimensions.csv
+    #     done
+    # done
+
 
     # next: how do rows an 
     # save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/weak_scaling_rows.csv"
@@ -215,7 +345,23 @@ if $scaling; then
     #     done
     # done
 
-fi
+    # save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/particles_density.csv"
+    # save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/fixed_density.csv"
+    # rows=3000 columns=3000 inlet_size=$rows
+    # max_iter=10 particles_f_band_size=$((rows-1)) particles_m_band_size=0
+    # echo "density,time" >> target/fixed_density.csv
+    # for density in $(seq 0 0.1 1); do
+    #     echo -e "\n\ndensity: $density"
+    #     particles_f_density=$density
+    #     update_args
+    #     for ((j=0; j<1; j++)); do
+    #         echo "iter: $j"
+    #         echo -n "$density," >> target/fixed_density.csv
+    #         ./wind_seq $args | eval $save
+    #         echo >> target/fixed_density.csv
+    #     done
+    # done
+    #
 
 # save="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n' >> target/weak_scaling_density.csv"
 # echo -n "density, seq, mpi, omp, cuda, pthread, pthread_2" >> target/weak_scaling_density.csv

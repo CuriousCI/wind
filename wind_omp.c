@@ -382,12 +382,17 @@ int main(int argc, char *argv[]) {
         if (iter % STEPS == 1) {
             memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
 
-#pragma omp parallel for num_threads(6) firstprivate(rows) firstprivate(columns) schedule(static, 1)
+#pragma omp parallel for firstprivate(rows) firstprivate(columns) schedule(static, 1)
             for (int particle = num_particles_f; particle < num_particles; particle++)
                 move_particle(flow, particles, particle, rows, columns);
 
             // Annotate position
+            /*#pragma omp parallel for*/
+            /*            for (int row = 0; row < rows; row++)*/
+            /*                memcpy(particle_locations + row * columns, fixed_particle_locations + row * columns, columns * sizeof(int));*/
             memcpy(particle_locations, fixed_particle_locations, rows * columns * sizeof(int));
+            /*#pragma omp parallel for*/
+            /*#pragma omp parallel for reduction(+ : particle_locations[ : rows * columns])*/
             for (int particle = num_particles_f; particle < num_particles; particle++)
                 accessMat(particle_locations,
                           particles[particle].pos_row / PRECISION,
@@ -398,7 +403,7 @@ int main(int argc, char *argv[]) {
 
         // 4.3. Effects due to particles each STEPS iterations
         if (iter % STEPS == 1) {
-#pragma omp parallel for num_threads(6)
+#pragma omp parallel for
             for (int particle = 0; particle < num_particles; particle++) {
                 int row = particles[particle].pos_row / PRECISION;
                 int col = particles[particle].pos_col / PRECISION;
@@ -409,7 +414,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (iter % STEPS == 1) {
-            /*#pragma omp parallel for num_threads(6)*/
+            /*#pragma omp parallel for reduction(+ : flow[ : rows * columns])*/
             for (particle = 0; particle < num_particles; particle++) {
                 int row = particles[particle].pos_row / PRECISION;
                 int col = particles[particle].pos_col / PRECISION;
