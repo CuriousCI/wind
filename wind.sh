@@ -20,7 +20,7 @@ done
 
 # ---
 
-rows=250 columns=250 max_iter=2000 var_threshold=0.5
+rows=250 columns=500 max_iter=2000 var_threshold=0.5
 inlet_pos=0 inlet_size=$rows
 particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=0.5
 particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.5
@@ -37,11 +37,15 @@ update_args
 
 if $benchmark; then
     make wind_seq wind_mpi wind_omp wind_cuda wind_pthread wind_pthread_2
+    echo -e "\n\nseq"
     ./wind_seq $args
-    ./wind_omp $args
+    echo -e "\n\nomp"
+    OMP_NUM_THREADS=6 ./wind_omp $args
+    echo -e "\n\npthread"
     ./wind_pthread $args
+    echo -e "\n\npthread 2"
     ./wind_pthread_2 $args
-    mpirun ./wind_mpi $args
+    # mpirun ./wind_mpi $args
     # ./wind_cuda $args
 fi
 
@@ -54,8 +58,10 @@ if $perf; then
 fi
 
 if $debug; then
-    make wind_mpi_debug
-    mpirun --get-stack-traces ./wind_mpi_debug $args
+    make wind_pthread_2_debug
+    gdb --args ./wind_pthread_2_debug $args
+    # make wind_mpi_debug
+    # mpirun --get-stack-traces ./wind_mpi_debug $args
     # mpirun -np 4 alacritty --hold -e gdb ./wind_mpi_debug $args 
     # make wind_pthread_2_debug
     # gdb --args ./wind_pthread_2_debug $args
@@ -96,7 +102,7 @@ if $valgrind; then
 
     update_args
 
-    make wind_seq_debug wind_pthread_debug wind_omp_debug
+    make wind_seq_debug wind_pthread_debug wind_pthread_2_debug wind_omp_debug
     rm target/* -f
 
     valgrind -s --tool=massif ./wind_seq_debug $args
@@ -116,10 +122,10 @@ if $valgrind; then
         mv $f target/$f.omp
     done
 
-    valgrind -s --log-file=./target/helgrind.pthread.txt --tool=helgrind ./wind_pthread_debug $args 
-    valgrind -s --tool=massif ./wind_pthread_debug $args 
-    valgrind -s --tool=callgrind ./wind_pthread_debug $args
-    valgrind -s --tool=cachegrind ./wind_pthread_debug $args
+    valgrind -s --log-file=./target/helgrind.pthread_2.txt --tool=helgrind ./wind_pthread_2_debug $args 
+    valgrind -s --tool=massif ./wind_pthread_2_debug $args 
+    valgrind -s --tool=callgrind ./wind_pthread_2_debug $args
+    valgrind -s --tool=cachegrind ./wind_pthread_2_debug $args
 
     for f in *.out.*; do 
         mv $f target/$f.pthread
@@ -249,9 +255,10 @@ system() {
     particles_f_density=0.5
     particles_m_density=0.5
     # 10000
-    for ((i=1; i<=4096; i*=2)); do
+    for ((i=1; i <= 20000; i*=2)); do
+    # for ((i=1; i<=4096; i*=2)); do
     # for ((i=1; i<=2048; i*=2)); do
-        rows=$i columns=$i inlet_size=$i
+        rows=$i columns=100 inlet_size=$i
         particles_f_band_size=$((rows-1)) particles_m_band_size=$((rows-1)) inlet_size=$((rows-1))
         update_args
 
@@ -266,19 +273,21 @@ system() {
 }
 
 if $scaling; then
-    rm target/*.csv
+    rm target/*.new.csv
     make wind_seq wind_mpi wind_omp wind_cuda wind_pthread wind_pthread_2
     
     iter=1
     max_iter=100
+    pref=".new"
 
-    system ./wind_seq "target/system.seq.csv" $iter
+    system ./wind_seq "target/system.seq$pref.csv" $iter
+
     for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=16; OMP_NUM_THREADS*=2)); do
-         system "OMP_STACKSIZE=999m OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" "target/system.omp.$OMP_NUM_THREADS.csv" $iter
+         system "OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" "target/system.omp.$OMP_NUM_THREADS$pref.csv" $iter
     done
 
-    # ulimit -s unlimited
-    system "OMP_STACKSIZE=999m OMP_NUM_THREADS=6 ./wind_omp" "target/system.omp.6.csv" $iter
+    system "OMP_NUM_THREADS=6 ./wind_omp" "target/system.omp.6$pref.csv" $iter
+
 
     # matrix_ratio ./wind_seq "target/matrix_ratio.seq.csv" $iter
     # matrix_size ./wind_seq "target/matrix_size.seq.csv" $iter
@@ -306,6 +315,8 @@ if $scaling; then
     # inlet_perf ./wind_seq 'target/inlet_perf.seq.csv' $iter 
 fi
 
+    # ulimit -s unlimited
+    # OMP_STACKSIZE=999m 
 
     # for OMP_NUM_THREADS in $(seq 1 1 16); do
     # inlet size performance

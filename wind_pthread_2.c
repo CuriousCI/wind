@@ -206,6 +206,7 @@ typedef struct {
     int *iter, *max_var, *flow, *flow_copy, *particle_locations, *fixed_particle_locations;
     Particle *particles;
     pthread_barrier_t *barrier;
+    pthread_mutex_t *max_var_mutex;
 } args_t;
 
 void *routine(void *argv) {
@@ -231,7 +232,6 @@ void *routine(void *argv) {
     sect_t cols_sect = sector(columns, rank);
 
     int max_var = INT_MAX, iter;
-
     for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
         if (iter % STEPS == 1) {
             if (rank == 0)
@@ -293,12 +293,28 @@ void *routine(void *argv) {
             /*for (int i = 0; i < iter && i < rows; i++)*/
             /*    for (int j = 0; j < columns; j++)*/
             /*        accessMat(flow_copy, i, j) = accessMat(flow, i, j);*/
-            memcpy(flow_copy, flow, rows * columns * sizeof(int));
+            if (iter % STEPS == 1)
+                memcpy(flow_copy, flow, rows * columns * sizeof(int));
+            else {
+                int wave_front = (iter - 1) % STEPS;
+                if (wave_front == 0)
+                    wave_front = STEPS;
+                for (int wave = wave_front; wave < rows; wave += STEPS) {
+                    if (wave > iter - 1)
+                        break;
+                    memcpy(flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int));
+                } // End propagation
+            }
+        }
+        /*memcpy(flow_copy, flow, rows * columns * sizeof(int));*/
 
-            /*pthread_barrier_wait(barrier);*/
+        /*pthread_barrier_wait(barrier);*/
 
-            // 4.5. Propagation stage
-            // 4.5.1. Initialize data to detect maximum variability
+        // 4.5. Propagation stage
+        // 4.5.1. Initialize data to detect maximum variability
+        /*pthread_barrier_wait(barrier);*/
+
+        if (rank == 0) {
             if (iter % STEPS == 1)
                 max_var = 0;
 
@@ -306,22 +322,29 @@ void *routine(void *argv) {
             int wave_front = iter % STEPS;
             if (wave_front == 0)
                 wave_front = STEPS;
-            int wave;
-            for (wave = wave_front; wave < rows; wave += STEPS) {
-                if (wave > iter)
-                    continue;
-
+            int q = 0;
+            for (int wave = wave_front; wave < (iter + 1 < rows ? iter + 1 : rows); wave += STEPS) {
+                /*if (q % THREADS_SIZE == rank)*/
                 for (int col = 0; col < columns; col++) {
                     int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
-                    if (var > max_var) {
+                    if (var > max_var)
                         max_var = var;
-                    }
                 }
+
+                /*q++;*/
             } // End propagation
         }
-
-        /*pthread_barrier_wait(barrier);*/
+        /*pthread_mutex_lock(args.max_var_mutex);*/
+        /*if (max_var > *args.max_var)*/
+        /*    *args.max_var = max_var;*/
+        /*pthread_mutex_unlock(args.max_var_mutex);*/
     }
+
+    /*int wave;*/
+    /**/
+    /*if (wave > iter)*/
+    /*    continue;*/
+    /*pthread_barrier_wait(barrier);*/
 
     if (rank == 0) {
         *args.iter = iter;
@@ -485,6 +508,9 @@ int main(int argc, char *argv[]) {
     pthread_barrier_t *barrier = malloc(sizeof(pthread_barrier_t));
     pthread_barrier_init(barrier, NULL, THREADS_SIZE);
 
+    pthread_mutex_t *max_var_mutex = malloc(sizeof(pthread_mutex_t));
+    pthread_mutex_init(max_var_mutex, NULL);
+
     args_t args[THREADS_SIZE];
 
     for (int rank = 0; rank < THREADS_SIZE; rank++)
@@ -506,7 +532,8 @@ int main(int argc, char *argv[]) {
             particle_locations,
             fixed_particle_locations,
             particles,
-            barrier};
+            barrier,
+            max_var_mutex};
 
     pthread_t threads[THREADS_SIZE];
 

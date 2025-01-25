@@ -382,16 +382,12 @@ int main(int argc, char *argv[]) {
         if (iter % STEPS == 1) {
             memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
 
-#pragma omp parallel for firstprivate(rows) firstprivate(columns) schedule(static, 1)
+            // Annotate position
+#pragma omp parallel for
             for (int particle = num_particles_f; particle < num_particles; particle++)
                 move_particle(flow, particles, particle, rows, columns);
 
-            // Annotate position
-            /*#pragma omp parallel for*/
-            /*            for (int row = 0; row < rows; row++)*/
-            /*                memcpy(particle_locations + row * columns, fixed_particle_locations + row * columns, columns * sizeof(int));*/
             memcpy(particle_locations, fixed_particle_locations, rows * columns * sizeof(int));
-            /*#pragma omp parallel for*/
             /*#pragma omp parallel for reduction(+ : particle_locations[ : rows * columns])*/
             for (int particle = num_particles_f; particle < num_particles; particle++)
                 accessMat(particle_locations,
@@ -422,9 +418,7 @@ int main(int argc, char *argv[]) {
 
                 int back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
                 accessMat(flow, row, col) -= back;
-
                 accessMat(flow, row - 1, col) += back / 2;
-
                 if (col > 0)
                     accessMat(flow, row - 1, col - 1) += back / 4;
                 else
@@ -440,11 +434,10 @@ int main(int argc, char *argv[]) {
         if (iter % STEPS == 1)
             memcpy(flow_copy, flow, rows * columns * sizeof(int));
         else {
-            int wf = (iter - 1) % STEPS;
-            if (wf == 0)
-                wf = STEPS;
-            int wave;
-            for (wave = wf; wave < rows; wave += STEPS) {
+            int wave_front = (iter - 1) % STEPS;
+            if (wave_front == 0)
+                wave_front = STEPS;
+            for (int wave = wave_front; wave < rows; wave += STEPS) {
                 if (wave > iter - 1)
                     break;
                 memcpy(flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int));
@@ -460,16 +453,12 @@ int main(int argc, char *argv[]) {
         int wave_front = iter % STEPS;
         if (wave_front == 0)
             wave_front = STEPS;
-        int wave;
-        for (wave = wave_front; wave < rows; wave += STEPS) {
-            if (wave > iter)
-                break;
-            int col;
-            for (col = 0; col < columns; col++) {
+        /*#pragma omp parallel for*/
+        for (int wave = wave_front; wave < (iter + 1 < rows ? iter + 1 : rows); wave += STEPS) {
+            for (int col = 0; col < columns; col++) {
                 int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
-                if (var > max_var) {
+                if (var > max_var)
                     max_var = var;
-                }
             }
         } // End propagation
 #endif // MODULE2

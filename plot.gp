@@ -13,7 +13,13 @@ plot 'target/system.seq.csv' using 1:2 with lines, \
      for [i=1:words(file)] sprintf("target/system.omp.%s.csv", word(file, i)) using 1:2 with lines title sprintf("omp %s", word(file, i))
 
 set key outside right top box width 0 height 0 vertical spacing 0.5 samplen 1.5 noenhanced
-set key at screen 0.95, 0.95
+set key at screen 0.95, 0.15
+
+plot 'target/system.seq.new.csv' using 1:2 with lines, \
+     for [i=1:words(file)] sprintf("target/system.omp.%s.new.csv", word(file, i)) using 1:2 with lines title sprintf("omp %s", word(file, i))
+
+# set key outside right bottom box width 0 height 0 vertical spacing 0.5 samplen 1.5 noenhanced
+# set key at screen 2, 2 
 
 # set format x "%.0f"
 # set logscale x 2
