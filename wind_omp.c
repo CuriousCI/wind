@@ -356,6 +356,11 @@ int main(int argc, char *argv[]) {
     flow_copy = calloc(rows * columns, sizeof(int));
     particle_locations = calloc(rows * columns, sizeof(int));
 
+    omp_lock_t *matrix_locks = malloc(rows * columns * sizeof(omp_lock_t));
+    for (size_t i = 0; i < rows; i++)
+        for (size_t j = 0; j < columns; j++)
+            omp_init_lock(&accessMat(matrix_locks, i, j));
+
     int num_particles_f = num_particles - num_particles_m_band;
     int *fixed_particle_locations = calloc(rows * columns, sizeof(int));
     for (int particle = 0; particle < num_particles_f; particle++)
@@ -382,7 +387,7 @@ int main(int argc, char *argv[]) {
         if (iter % STEPS == 1) {
             memset(particle_locations, 0, (iter + 1 < rows ? iter + 1 : rows) * columns * sizeof(int));
 
-            // Annotate position
+// Annotate position
 #pragma omp parallel for
             for (int particle = num_particles_f; particle < num_particles; particle++)
                 move_particle(flow, particles, particle, rows, columns);
@@ -411,6 +416,8 @@ int main(int argc, char *argv[]) {
 
         if (iter % STEPS == 1) {
             /*#pragma omp parallel for reduction(+ : flow[ : rows * columns])*/
+            /* TODO: lock for each position */
+            /*#pragma omp parallel for*/
             for (particle = 0; particle < num_particles; particle++) {
                 int row = particles[particle].pos_row / PRECISION;
                 int col = particles[particle].pos_col / PRECISION;
@@ -419,14 +426,18 @@ int main(int argc, char *argv[]) {
                 int back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
                 accessMat(flow, row, col) -= back;
                 accessMat(flow, row - 1, col) += back / 2;
-                if (col > 0)
+
+                if (col > 0) {
                     accessMat(flow, row - 1, col - 1) += back / 4;
-                else
+                } else {
                     accessMat(flow, row - 1, col) += back / 4;
-                if (col < columns - 1)
+                }
+
+                if (col < columns - 1) {
                     accessMat(flow, row - 1, col + 1) += back / 4;
-                else
+                } else {
                     accessMat(flow, row - 1, col) += back / 4;
+                }
             }
         }
 
@@ -437,11 +448,10 @@ int main(int argc, char *argv[]) {
             int wave_front = (iter - 1) % STEPS;
             if (wave_front == 0)
                 wave_front = STEPS;
-            for (int wave = wave_front; wave < rows; wave += STEPS) {
-                if (wave > iter - 1)
-                    break;
+
+#pragma omp parallel for
+            for (int wave = wave_front; wave < (iter < rows ? iter : rows); wave += STEPS)
                 memcpy(flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int));
-            } // End propagation
         }
 
         // 4.5. Propagation stage
@@ -453,7 +463,7 @@ int main(int argc, char *argv[]) {
         int wave_front = iter % STEPS;
         if (wave_front == 0)
             wave_front = STEPS;
-        /*#pragma omp parallel for*/
+#pragma omp parallel for reduction(max : max_var)
         for (int wave = wave_front; wave < (iter + 1 < rows ? iter + 1 : rows); wave += STEPS) {
             for (int col = 0; col < columns; col++) {
                 int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
@@ -469,6 +479,10 @@ int main(int argc, char *argv[]) {
 #endif
 
     } // End iterations
+
+    for (size_t i = 0; i < rows; i++)
+        for (size_t j = 0; j < columns; j++)
+            omp_init_lock(&accessMat(matrix_locks, i, j));
 
     /*
      *

@@ -48,6 +48,186 @@
 - performance when adding fixed particles
 - performance inlet
 
+
+TODO:
+- data vs task parallelism
+- MPI_init
+- MPI_finalize
+- mpirun -n ...
+- MPI_Comm_rank
+- MPI_Comm_size
+- MPI_Send
+  - non overtaking (for the same process)
+- MPI_Recv
+- MPI tags
+- Custom MPI communicators?
+- MPI_ANY_SOURCE
+- MPI_ANY_TAG
+- MPI_Status
+- MPI_Get_cout
+- multiple mpi hosts
+- Non blocking
+- MPI_Wait
+- MPI_Test
+- MPI_Reduce
+- MPI_BCast
+- MPI_Allreduce
+- https://engineering.fb.com/2021/07/15/open-source/fsdp
+- NCCL (Nvidia, hard to try, I have only 1 gpu)
+- MPI_Scatter
+- MPI_Gather
+- MPI_Barrier
+- MPI_Allgather
+- MPI_Reducescatter
+- MPI_Alltoall
+- MPI_Wtime (not my problem)
+- distribution of timings
+- PMC7 - slide 15
+- comm_sz vs order of matrix (table)
+  - $T_"serial" (n)$
+  - $T_"parallel" (n, p)$
+  - Speedup $S(n, p) = (T_"serial" (n) ) / (T_"parallel" (n, p))$
+  - Ideally $S(n, p) = p$ (linear speedup)
+  - speedup better when increasing problem size (PMC7 - slide 23)
+  - Scalability $S(n, p) = (T_"parallel" (n, 1)) / (T_"parallel" (n, p))$
+  - Efficiency $E(n, p) = S(n, p) / p = T_"serial"(n) / (p dot.c T_"parallel" (n, p))$
+  - Ideally $E(n, p) = 1$ (worst with smaller examples)
+  - strong vs weak scaling
+    - strong: fixed size, increase the number of processes
+    - weak: increase both processes and size at same scale
+  - Amdahl's law
+    - $T_"parallel" (p) = (1 - alpha) T_"serial" + alpha T_"serial" / p$
+    - $0 <= alpha <= 1$ is the fraction that can be parallelized
+    - Speedup Amdahl $S(p) = T_"serial" / ((1 - alpha) T_"serial" + alpha (T_"serial" / p))$
+    - $lim_(p -> inf) S(p) = 1 / (1 - alpha)$
+    - PDF7 - slide 37
+  - Gustafson's law
+    - $S(n, p) = (1 - alpha) + alpha p$
+- MPI_Sendrecv
+- In place
+- MPI_Type
+- MPI_Type_free
+
+Pthread
+- pthread_create
+- pthread_join
+- pthraad_self
+- pthread_equal
+- thread_handles (name for array)
+- -lpthread
+- pthread_mutex_t
+- pthread_mutex_init
+- pthread_mutex_destroy
+- pthread_mutex_lock
+- pthread_mutex_unlock
+- pthread_mutex_trylock
+- problems
+  - starvation
+  - deadlocks
+  - produce consumer
+- sem_init
+- sem_destroy
+- sem_post
+- sem_wait
+- lscup PMC 10 - slide 9
+- pthread_barrier (to sync)
+- pthread_cond_t
+- pthread_cond_init
+- pthread_cond_wait
+- pthread_cond_broadcast PMC 10 - slide 58
+- pthread_cond_destroy
+- TODO: attributes?
+- phtread_rwlock_init
+- pthread_rwlock_destroy
+- pthread_rwlock_rdlock
+- pthread_rwlock_wrlock
+- pthread_rwlock_unlock
+
+OpenMP
+- ```c #pragma omp parallel```
+- export OMP_NUM_THREADS=4
+- omp_get_num_threads()
+- omp_get_thread_num()
+- ```c #pragma omp parallel num_threads(thread_count)```
+- number of threads isn't guaranteed
+- implicit barrier after block is completed
+- names
+  - team of threads (that execute a block in parallel)
+  - master: original thread of execution
+  - parent: thread that started a team of threads
+  - child: each thread started by a parent
+- ```c #pragma omp end parallel```
+- ```c #ifndef _OPENMP #else #endif```
+- ```c #pragma omp critical``` on critical section
+  - it can have a name ```cpp critical(name)``` : different names can be executed at the same time
+- ```c #pragma omp atomic``` only for 1 instruction, iff parallelizable
+- scope: set of threads that can access the variable
+  - shared: accessed by all the threads in the team (default for otuside variables)
+  - private: accessed by a single thread (default for variables in scope)
+- reduction operator: binary operator
+- reduction: computation that repeatedly applies the same reduction operator to a sequence of operands in order to get a single result
+- ```c #pragma omp parallel for reduction(<operator>: <variable list>)```
+- ```c default(none)``` for scope
+- ```c shared()```
+- ```c private(x)``` x is not initialized
+- ```c firstprivate(x)``` same as private, but value is initialized to outside value
+- ```c lastprivate(x)``` same as private, but the thread with the *last iteration* sets it value outside
+- ```c threadprivate(x)``` thread specific persistent storage for global data (the variable must be global or static)
+- ```c copyin``` used with threadprivate to initialize threadprivate copies from the master thread's variables
+- ```c single copyprivate(private_var)```
+- ```c #pragma omp parallel for```
+- nested:
+  - invert loops... (not a bad idea)
+  - collapse in one loop
+  - ```c #pragma omp parallel for collapse(2)```
+  - nested parallelism is disabled by default
+- data dependencies PMC 14 - slide 29:
+  - loop-carried dependence
+  - flow dependence (RAW)
+  - anti-flow dependence (WAR)
+  - output dependence (WAW)
+  - input dependence (RAR)
+- flow dependence removal (TODO)
+  1. reduction/induction variable fix
+  2. loop skewing
+  3. partial parallelization
+  4. refactoring
+  5. fissioning  
+  6. algorithm change
+- scheduling
+  - default (0: first 10, 1: second 10 etc...)
+  - cyclic (0: 1, 11, 21, etc..., 1: 2, 12, 22 etc...)
+    - ```c schedule(static, 1)```, assigned before the loop is executed
+    - dynamic or guided (iterations assigned while the loop is executing)
+    - auto (compiler / runtime system decides)
+    - runtime (runtime system decides)
+- omp_lock_t write_lock;
+- omp_init_lock
+- omp_set_lock
+- omp_unset_lock
+- omp_destroy_lock
+- master/single directives:
+  - only 1 thread executes it
+  - with "single" a barrier is put at the end of the block
+- ```c #pragma omp barrier```
+- ```c #pragma omp parallel sections```
+  - ```c #pragma omp section```
+- ```c #pragma omp for ordered```
+  - ```c #pragma omp ordered```
+- PMC15 - slide 54 MPI + omp/pthread
+
+
+Other
+- message matching
+  - recv type = send type
+  - recv buff size > send buff size
+- P2P
+  - buffered
+  - synchronous
+  - ready
+
+#page(bibliography("bibl.bib"))
+
 // rows=250 
 // columns=250 
 // max_iter=2000 
@@ -189,5 +369,4 @@
 // PMC7
 // PMC8 datatypes
 
-#page(bibliography("bibl.bib"))
 
