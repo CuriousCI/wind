@@ -20,10 +20,10 @@ done
 
 # ---
 
-rows=250 columns=300 max_iter=2000 var_threshold=0.5
+rows=250 columns=250 max_iter=5000 var_threshold=0.5
 inlet_pos=0 inlet_size=$rows
-particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=0.5
-particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.5
+particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
+particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=1.0
 short_rnd1=$((RANDOM % 10000 + 1)) short_rnd2=$((RANDOM % 10000 + 1)) short_rnd3=$((RANDOM % 10000 + 1))
 rows=2000
 
@@ -41,14 +41,16 @@ get_time="awk 'NR==2 {printf \"%s \", \$2}' | tr -d '\n'"
 if $benchmark; then
     make wind_seq wind_mpi wind_omp wind_cuda wind_pthread wind_pthread_2
     echo -e "\n\nseq"; ./wind_seq $args
-    for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=16; OMP_NUM_THREADS*=2)); do
-        echo -e "\n\nomp $OMP_NUM_THREADS"; OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp $args
-    done
-    echo -e "\n\nomp"; OMP_NUM_THREADS=6 ./wind_omp $args
+    # echo -e "\n\nomp 3"; OMP_NUM_THREADS=3 ./wind_omp $args
+    echo -e "\n\nomp 1"; OMP_NUM_THREADS=1 ./wind_omp $args
+    echo -e "\n\nomp 6"; OMP_NUM_THREADS=6 ./wind_omp $args
+    # for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=16; OMP_NUM_THREADS*=2)); do
+    #     echo -e "\n\nomp $OMP_NUM_THREADS"; OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp $args
+    # done
     # echo -e "\n\npthread"; ./wind_pthread $args
-    echo -e "\n\npthread 2"; ./wind_pthread_2 $args
+    # echo -e "\n\npthread 2"; ./wind_pthread_2 $args
     # mpirun ./wind_mpi $args
-    # ./wind_cuda $args
+    # echo -e "\n\ncuda"; ./wind_cuda $args
 fi
 
 if $perf; then 

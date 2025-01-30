@@ -145,7 +145,7 @@ Pthread
 
 OpenMP
 - ```c #pragma omp parallel```
-- export OMP_NUM_THREADS=4
+- X export OMP_NUM_THREADS=4
 - omp_get_num_threads()
 - omp_get_thread_num()
 - ```c #pragma omp parallel num_threads(thread_count)```
@@ -216,6 +216,96 @@ OpenMP
   - ```c #pragma omp ordered```
 - PMC15 - slide 54 MPI + omp/pthread
 
+CUDA
+- GPU and CPU memories are disjoint
+- not the same floating point representation
+- typical program
+  - allocate GPU memory
+  - transfer from host to GPU
+  - run CUDA kernel
+  - copy results from GPU to host
+- 6D structure
+  - each thread has a (x, y, z) in a block
+  - each block has a (x, y, z) in a grid
+  - PMC16 - slide 26 (different capability, different sizes possible)
+  - TODO: get capability of my CPU (6.1)
+- kernel (function)
+  - dim3 block(3, 2)
+    - max 1024 threads per block
+  - dim3 grid(4, 3, 2)
+  - always void
+  - types:
+    - `__global__`: called from both device and host; from CC 3.5 can be executed on host too
+    - `__device__`: runs on the GPU and can be called only by a kernel
+    - `__host__`: used in combination with `__device__` to generate 2 codes
+  - `threadIdx`: position of thread within block
+  - `blockIdx`: position of thread's block within grid
+  - `int myId = stuff`
+- threads are executed in *warps* (size 32)
+  - threads in a *block* are split in *warps*
+  - multiple warps can be executed together, but at different execution paths
+  - warp divergence
+
+- CUDA device (8 blocks per SM, 1024 threads per SM, 512 threads per block)
+  - $8 times 8$ blocks
+    - 64 threads per block
+    - 1024 / 64 blocks needed (which is 16, and not all are used)
+  - $16 times 16$
+    - 256 threads per block
+    - 1024 / 256 = 4 which is a good amount of blocks: 4
+  - $32 times 32$
+    - 1024 threads per block
+    - more than the 512 allowed
+- cudaMalloc()
+- cudaFree()
+- cudaMemcpy()
+  - cudaMemcpyHostToHost
+  - cudaMemcpyHostToDevice
+  - cudaMemcpyDeviceToHost
+  - cudaMemcpyDeviceToDevice
+  - cudaMemcpyDefault (when Unified Virtual Address space capable)
+  - PMC 16 - slide 64
+- Memory Types
+  - registers: hold local variables
+    - store local variables
+    - split among resident threads
+    - maxNumRegisters determined by CC // TODO: determin maxNumRegisters
+    - if number is exceeded, variables are stored in global
+    - decided by the compiler
+    - nvcc --Xptxas
+    - *occupancy* = $"resident_warps" / "maximum_warps"$
+      - close to 1 is desirable (to hide latencies)
+      - analyzed via profiler
+  - shared memory: fast on-chip, used to hold frequently used data (used to exchange data between cores of the same SM)
+    - used like L1 "user-managed" cache
+    - `__shared__` specifier used to indicate data that must go on shared memory
+    - void `__syncthreads()` used to avoid WAR, RAW, WAW hazards
+  - L1/L2 cache: transparent to the programmer
+  - other
+    - global memory: off-chip, high capacity, relatively slow (only part accessible by the host)
+    - texture and surface memory: permits fast implementation of filtering/interpolation operator
+    - constant memory: cached, non modifiable, broadcast constants to all threads in a wrap
+  - variable declaration:
+    - automatic variables (no arrays): *registers* (scope thread) - lifetime kernel
+    - automatic arrays: *global memory* (scope thread) - lifetime kernel
+    - `__device__` `__shared__` int sharedVar; *shared memory* (scope block) - lifetime kernel
+    - `__device__` int globalVar; *global memory* (scope grid) - lifetime application
+    - `__device__` `__constant__` int constVar; *constant memory* (scope grid) - lifetime application
+  - Roofline model
+    - https://docs.nersc.gov/tools/performance/roofline/
+    - https://people.eecs.berkeley.edu/~kubitron/cs252/handouts/papers/RooflineVyNoYellow.pdf
+    - $beta$ = 0.5GB/s
+    - PMC20
+    - PMC18
+  - matrix multiplication
+  - atomicAdd
+  - MPI+GPU
+    - PMC20j
+
+
+- cudaDeviceSynchronize(); // barrier
+- nvcc --arch=sm_20 (cc 2.0) // cuda capability
+  
 
 Other
 - message matching

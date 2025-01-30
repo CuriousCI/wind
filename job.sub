@@ -6,7 +6,8 @@ output = logs/cuda_job.out
 error = logs/cuda_job.err
 
 # Request GPU resources
-request_gpus = 0
+# request_gpus = 0
+request_cpus = 64
 
 # Specify any environment setup if needed
 getenv = True
