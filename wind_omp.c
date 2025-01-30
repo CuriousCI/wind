@@ -360,17 +360,11 @@ int main(int argc, char *argv[]) {
     int *backs = malloc(num_particles * sizeof(int));
     ParticlePos *particles_pos = malloc(num_particles * sizeof(ParticlePos));
 
-    omp_lock_t *matrix_locks = malloc(rows * columns * sizeof(omp_lock_t));
-    for (size_t i = 0; i < rows; i++)
-        for (size_t j = 0; j < columns; j++)
-            omp_init_lock(&accessMat(matrix_locks, i, j));
-
     int num_particles_f = num_particles - num_particles_m_band;
-    int *fixed_particle_locations = calloc(rows * columns, sizeof(int));
-    for (int particle = 0; particle < num_particles_f; particle++) {
+    for (int particle = 0; particle < num_particles; particle++) {
         particles_pos[particle].row = particles[particle].pos_row / PRECISION;
         particles_pos[particle].col = particles[particle].pos_col / PRECISION;
-        accessMat(fixed_particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;
+        accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;
     }
 
     /* 4. Simulation */
@@ -385,28 +379,26 @@ int main(int argc, char *argv[]) {
                 double noise = 0.5 - erand48(random_seq);
                 accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
             }
-        } // End inlet update
+            // End inlet update
 
 #ifdef MODULE2
 #ifdef MODULE3
-        // 4.2. Particles movement each STEPS iterations
-        // Clean particle positions
-        if (iter % STEPS == 1) {
+            // 4.2. Particles movement each STEPS iterations
+            // Clean particle positions
+            for (int particle = num_particles_f; particle < num_particles; particle++)
+                accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)--;
+
 #pragma omp parallel for
-            // Annotate position
             for (int particle = num_particles_f; particle < num_particles; particle++) {
                 move_particle(flow, particles, particle, rows, columns);
                 particles_pos[particle].row = particles[particle].pos_row / PRECISION;
                 particles_pos[particle].col = particles[particle].pos_col / PRECISION;
             }
 
-            /* TODO: basically, calculate displacements based on the number of threads, and parallelize that */
-            memcpy(particle_locations, fixed_particle_locations, rows * columns * sizeof(int));
-
             for (int particle = num_particles_f; particle < num_particles; particle++)
                 accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;
 
-            // 4.3. Effects due to particles each STEPS iterations
+// 4.3. Effects due to particles each STEPS iterations
 #pragma omp parallel for
             for (int particle = 0; particle < num_particles; particle++) {
                 int row = particles_pos[particle].row;
@@ -414,24 +406,16 @@ int main(int argc, char *argv[]) {
 
                 update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
                 particles[particle].old_flow = accessMat(flow, row, col);
+                backs[particle] = (int)((long)particles[particle].old_flow * particles[particle].resistance / PRECISION) / accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col);
             }
-        }
 
 #endif // MODULE3
-
-        if (iter % STEPS == 1) {
-#pragma omp parallel for
-            for (int particle = 0; particle < num_particles; particle++)
-                backs[particle] = (int)((long)particles[particle].old_flow * particles[particle].resistance / PRECISION) / accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col);
-
             for (particle = 0; particle < num_particles; particle++) {
                 int back = backs[particle];
                 int row = particles_pos[particle].row;
                 int col = particles_pos[particle].col;
-
                 accessMat(flow, row, col) -= back;
                 accessMat(flow, row - 1, col) += back / 2;
-
                 if (col > 0)
                     accessMat(flow, row - 1, col - 1) += back / 4;
                 else
@@ -443,12 +427,6 @@ int main(int argc, char *argv[]) {
                     accessMat(flow, row - 1, col) += back / 4;
             }
         }
-
-        /*#pragma omp parallel for schedule(static, 1)*/
-        /*omp_set_lock(&accessMat(matrix_locks, row, col));*/
-        /*omp_set_lock(&accessMat(matrix_locks, row - 1, col));*/
-        /*omp_unset_lock(&accessMat(matrix_locks, row, col));*/
-        /*omp_unset_lock(&accessMat(matrix_locks, row - 1, col));*/
 
         // 4.4. Copy data in the ancillary structure
         if (iter % STEPS == 1)
@@ -489,10 +467,6 @@ int main(int argc, char *argv[]) {
 
     } // End iterations
 
-    for (size_t i = 0; i < rows; i++)
-        for (size_t j = 0; j < columns; j++)
-            omp_destroy_lock(&accessMat(matrix_locks, i, j));
-
     /*
      *
      * STOP HERE: DO NOT CHANGE THE CODE BELOW THIS POINT
@@ -508,9 +482,7 @@ int main(int argc, char *argv[]) {
     printf("Time: %lf\n", ttotal);
 
     /* 6.2. Results: Statistics */
-    printf("Result: %d, %d",
-           iter - 1,
-           max_var);
+    printf("Result: %d, %d", iter - 1, max_var);
     int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
     int ind;
     for (ind = 0; ind < 6; ind++)
@@ -550,3 +522,39 @@ int main(int argc, char *argv[]) {
 /*        }*/
 /*    }*/
 /*}*/
+
+/*omp_lock_t *matrix_locks = malloc(rows * columns * sizeof(omp_lock_t));*/
+/*for (size_t i = 0; i < rows; i++)*/
+/*    for (size_t j = 0; j < columns; j++)*/
+/*        omp_init_lock(&accessMat(matrix_locks, i, j));*/
+
+/*#pragma omp parallel for schedule(static, 1)*/
+/*omp_set_lock(&accessMat(matrix_locks, row, col));*/
+/*omp_set_lock(&accessMat(matrix_locks, row - 1, col));*/
+/*omp_unset_lock(&accessMat(matrix_locks, row, col));*/
+/*omp_unset_lock(&accessMat(matrix_locks, row - 1, col));*/
+
+/*for (size_t i = 0; i < rows; i++)*/
+/*    for (size_t j = 0; j < columns; j++)*/
+/*        omp_destroy_lock(&accessMat(matrix_locks, i, j));*/
+/*for (int particle = 0; particle < num_particles_f; particle++) {*/
+/*    particles_pos[particle].row = particles[particle].pos_row / PRECISION;*/
+/*    particles_pos[particle].col = particles[particle].pos_col / PRECISION;*/
+/*    accessMat(fixed_particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;*/
+/*}*/
+/*accessMat(fixed_particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;*/
+
+/*particles_pos[particle].col;*/
+/* TODO: basically, calculate displacements based on the number of threads, and parallelize that */
+/*memcpy(particle_locations, fixed_particle_locations, rows * columns * sizeof(int));*/
+/*for (int particle = num_particles_f; particle < num_particles; particle++)*/
+/*    accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;*/
+/*int *fixed_particle_locations = calloc(rows * columns, sizeof(int));*/
+/*for (size_t i = 0; i < rows; i++)*/
+/*    for (size_t j = 0; j < columns; j++)*/
+/*        omp_destroy_lock(&accessMat(matrix_locks, i, j));*/
+/* TODO: OMP, get_num_threads, get_thread_id, do particle iff in range */
+/* TODO: build dynamic matrix*/
+/*#pragma omp parallel for*/
+/*            for (int particle = 0; particle < num_particles; particle++)*/
+/*backs[particle] = (int)((long)particles[particle].old_flow * particles[particle].resistance / PRECISION) / accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col);*/

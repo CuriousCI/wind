@@ -49,7 +49,7 @@ if $benchmark; then
     # done
     # echo -e "\n\npthread"; ./wind_pthread $args
     # echo -e "\n\npthread 2"; ./wind_pthread_2 $args
-    # mpirun ./wind_mpi $args
+    mpirun ./wind_mpi $args
     # echo -e "\n\ncuda"; ./wind_cuda $args
 fi
 
@@ -260,7 +260,7 @@ system() {
     for ((i=1; i <= 20000; i*=2)); do
     # for ((i=1; i<=4096; i*=2)); do
     # for ((i=1; i<=2048; i*=2)); do
-        rows=$i columns=100 inlet_size=$i
+    rows=$i columns=$((i/10 + 1)) inlet_size=$i
         particles_f_band_size=$((rows-1)) particles_m_band_size=$((rows-1)) inlet_size=$((rows-1))
         update_args
 
@@ -279,7 +279,7 @@ if $scaling; then
     make wind_seq wind_mpi wind_omp wind_cuda wind_pthread wind_pthread_2
     
     iter=1
-    max_iter=100
+    max_iter=20
     pref=".new"
 
     system ./wind_seq "target/system.seq$pref.csv" $iter

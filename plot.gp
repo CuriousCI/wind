@@ -14,6 +14,7 @@ plot 'target/system.seq.csv' using 1:2 with lines, \
 
 set key outside right top box width 0 height 0 vertical spacing 0.5 samplen 1.5 noenhanced
 set key at screen 0.95, 0.15
+# set yr[0:3]
 
 plot 'target/system.seq.new.csv' using 1:2 with lines, \
      for [i=1:words(file)] sprintf("target/system.omp.%s.new.csv", word(file, i)) using 1:2 with lines title sprintf("omp %s", word(file, i))
