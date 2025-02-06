@@ -148,14 +148,14 @@ __global__ void update_particles_flow_kernel(
         atomicAdd(&accessMat(d_flow, row - 1, col + 1), back / 4);
     else
         atomicAdd(&accessMat(d_flow, row - 1, col), back / 4);
-
-    // accessMat(d_flow_copy, row, col) = accessMat(d_flow, row, col);
-    // accessMat(d_flow_copy, row - 1, col) = accessMat(d_flow, row - 1, col);
-    // if (col > 0)
-    //     accessMat(d_flow_copy, row - 1, col - 1) = accessMat(d_flow, row - 1, col - 1);
-    // if (col < columns - 1)
-    //     accessMat(d_flow_copy, row - 1, col + 1) = accessMat(d_flow, row - 1, col + 1);
 }
+
+// accessMat(d_flow_copy, row, col) = accessMat(d_flow, row, col);
+// accessMat(d_flow_copy, row - 1, col) = accessMat(d_flow, row - 1, col);
+// if (col > 0)
+//     accessMat(d_flow_copy, row - 1, col - 1) = accessMat(d_flow, row - 1, col - 1);
+// if (col < columns - 1)
+//     accessMat(d_flow_copy, row - 1, col + 1) = accessMat(d_flow, row - 1, col + 1);
 
 // __syncthreads();
 //
@@ -166,12 +166,68 @@ __global__ void update_particles_flow_kernel(
 // if (col < columns - 1)
 //     accessMat(d_flow_copy, row - 1, col + 1) = accessMat(d_flow, row - 1, col + 1);
 
+// __global__ void propagate_waves_kernel(
+//     int iter,
+//     int wave_front,
+//     int last_wave,
+//     int *d_flow,
+//     int *d_flow_copy,
+//     int *d_particle_locations,
+//     int *d_max_var,
+//     int columns
+// ) {
+//     __shared__ int temp[32 + 2];
+//
+//     int wave = wave_front + blockIdx.y * 8;
+//     int col = blockIdx.x * blockDim.x + threadIdx.x;
+//
+//     if (col >= columns || wave >= last_wave)
+//         return;
+//
+//     if (accessMat(d_particle_locations, wave, col) != 0)
+//         return;
+//
+//     int s_idx = threadIdx.x + 1;
+//
+//     temp[s_idx] = accessMat(d_flow_copy, wave - 1, col);
+//     if (col > 0)
+//         temp[s_idx - 1] = accessMat(d_flow_copy, wave - 1, col - 1);
+//     if (col < columns - 1)
+//         temp[s_idx + 1] = accessMat(d_flow_copy, wave - 1, col + 1);
+//
+//     __syncthreads();
+//
+//     int temp_flow = accessMat(d_flow_copy, wave, col) + temp[s_idx] * 2;
+//     if (col > 0)
+//         temp_flow += temp[s_idx - 1];
+//     if (col < columns - 1)
+//         temp_flow += temp[s_idx + 1];
+//     int div = 4;
+//     if (col > 0 && col < columns - 1)
+//         div = 5;
+//     // accessMat(d_flow, wave, col) = temp_flow / div;
+//     atomicExch(&accessMat(d_flow, wave, col), temp_flow / div);
+//
+//     int var = abs(accessMat(d_flow_copy, wave, col) - accessMat(d_flow, wave, col));
+//     atomicMax(d_max_var, var);
+//
+//     if (wave_front == STEPS)
+//         return;
+//
+//     accessMat(d_flow_copy, wave, col) = accessMat(d_flow, wave, col);
+//     accessMat(d_flow_copy, wave - 1, col) = accessMat(d_flow, wave - 1, col);
+//     if (col > 0)
+//         accessMat(d_flow_copy, wave - 1, col - 1) = accessMat(d_flow, wave - 1, col - 1);
+//     if (col < columns - 1)
+//         accessMat(d_flow_copy, wave - 1, col + 1) = accessMat(d_flow, wave - 1, col + 1);
+// }
+
 __global__ void propagate_waves_kernel(
     int iter,
     int wave_front,
     int last_wave,
     int *d_flow,
-    int *d_flow_copy,
+    // int *d_flow_copy,
     int *d_particle_locations,
     int *d_max_var,
     int columns
@@ -189,15 +245,17 @@ __global__ void propagate_waves_kernel(
 
     int s_idx = threadIdx.x + 1;
 
-    temp[s_idx] = accessMat(d_flow_copy, wave - 1, col);
+    temp[s_idx] = accessMat(d_flow, wave - 1, col);
     if (col > 0)
-        temp[s_idx - 1] = accessMat(d_flow_copy, wave - 1, col - 1);
+        temp[s_idx - 1] = accessMat(d_flow, wave - 1, col - 1);
     if (col < columns - 1)
-        temp[s_idx + 1] = accessMat(d_flow_copy, wave - 1, col + 1);
+        temp[s_idx + 1] = accessMat(d_flow, wave - 1, col + 1);
+
+    int temp_flow = accessMat(d_flow, wave, col) + temp[s_idx] * 2;
+    int old = accessMat(d_flow, wave, col);
 
     __syncthreads();
 
-    int temp_flow = accessMat(d_flow_copy, wave, col) + temp[s_idx] * 2;
     if (col > 0)
         temp_flow += temp[s_idx - 1];
     if (col < columns - 1)
@@ -205,21 +263,11 @@ __global__ void propagate_waves_kernel(
     int div = 4;
     if (col > 0 && col < columns - 1)
         div = 5;
-    // accessMat(d_flow, wave, col) = temp_flow / div;
-    atomicExch(&accessMat(d_flow, wave, col), temp_flow / div);
-
-    int var = abs(accessMat(d_flow_copy, wave, col) - accessMat(d_flow, wave, col));
+    temp_flow /= div;
+    old = atomicExch(&accessMat(d_flow, wave, col), temp_flow);
+    int var = abs(old - temp_flow);
+    // printf("%d\n", var);
     atomicMax(d_max_var, var);
-
-    if (wave_front == STEPS)
-        return;
-
-    accessMat(d_flow_copy, wave, col) = accessMat(d_flow, wave, col);
-    accessMat(d_flow_copy, wave - 1, col) = accessMat(d_flow, wave - 1, col);
-    if (col > 0)
-        accessMat(d_flow_copy, wave - 1, col - 1) = accessMat(d_flow, wave - 1, col - 1);
-    if (col < columns - 1)
-        accessMat(d_flow_copy, wave - 1, col + 1) = accessMat(d_flow, wave - 1, col + 1);
 }
 
 /*
@@ -677,17 +725,18 @@ int main(int argc, char *argv[]) {
 
 #ifdef MODULE2
 #ifdef MODULE3
-            move_particles_kernel<<<(num_particles_m / 256) + 1, 256>>>(
-                d_flow,
-                d_particle_locations,
-                d_particles_m,
-                d_particles_m_pos,
-                d_particles_m_mass,
-                num_particles_m,
-                precision_rows,
-                precision_columns,
-                columns
-            );
+            if (num_particles_m > 0)
+                move_particles_kernel<<<(num_particles_m / 256) + 1, 256>>>(
+                    d_flow,
+                    d_particle_locations,
+                    d_particles_m,
+                    d_particles_m_pos,
+                    d_particles_m_mass,
+                    num_particles_m,
+                    precision_rows,
+                    precision_columns,
+                    columns
+                );
 
 #ifdef DEBUG
             cudaMemcpy(
@@ -700,15 +749,16 @@ int main(int argc, char *argv[]) {
 
 #endif // MODULE3
 
-            update_particles_flow_kernel<<<(num_particles / 1024) + 1, 1024>>>(
-                d_flow,
-                d_flow_copy,
-                d_particle_locations,
-                d_particles_pos,
-                d_particles_res,
-                columns,
-                num_particles
-            );
+            if (num_particles > 0)
+                update_particles_flow_kernel<<<(num_particles / 1024) + 1, 1024>>>(
+                    d_flow,
+                    d_flow_copy,
+                    d_particle_locations,
+                    d_particles_pos,
+                    d_particles_res,
+                    columns,
+                    num_particles
+                );
 
             max_var = 0;
             cudaMemset(d_max_var, 0, sizeof(int));
@@ -724,15 +774,21 @@ int main(int argc, char *argv[]) {
             //         cudaMemcpyDeviceToDevice
             //     );
 
-            cudaMemcpy(
-                d_flow_copy, d_flow, rows * columns * sizeof(int), cudaMemcpyDeviceToDevice
-            );
+            // cudaMemcpy(
+            //     d_flow_copy, d_flow, rows * columns * sizeof(int), cudaMemcpyDeviceToDevice
+            // );
         } // End effects
 #endif // MODULE2
 
         int wave_front = iter % STEPS;
-        if (wave_front == 0)
+        if (wave_front == 0) {
             wave_front = STEPS;
+            if (num_particles > 0)
+                cudaMemcpy(
+                    d_flow_copy, d_flow, rows * columns * sizeof(int), cudaMemcpyDeviceToDevice
+                );
+        }
+
         int last_wave = iter + 1 < rows ? iter + 1 : rows;
 
         propagate_waves_kernel<<<grid_dim, block_dim>>>(
@@ -740,7 +796,7 @@ int main(int argc, char *argv[]) {
             wave_front,
             last_wave,
             d_flow,
-            d_flow_copy,
+            // d_flow_copy,
             d_particle_locations,
             d_max_var,
             columns

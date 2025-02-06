@@ -53,7 +53,7 @@ wind_mpi: wind_mpi.c
 	$(MPICC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
 
 wind_cuda: wind_cuda.cu
-	$(CUDACC) $(DEBUG) $< $(LIBS) -o $@
+	$(CUDACC) -O3 $(DEBUG) $< $(LIBS) -o $@
 
 # TODO: -Xptxax
 wind_cuda_2: wind_cuda_2.cu
@@ -64,6 +64,11 @@ wind_pthread: wind_pthread.c
  
 wind_pthread_2: wind_pthread_2.c
 	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -lpthread -o $@
+
+wind_omp_cuda: wind_omp_cuda.cu
+	$(CUDACC) -O3 $(DEBUG) -Xcompiler -fopenmp $< $(LIBS) -o $@
+	# $(CUDACC) --debug $(DEBUG) -Xcompiler -fopenmp -ggdb3 $< $(LIBS) -o $@
+	
 
 # DEBUGGING
 
@@ -88,9 +93,10 @@ wind_pthread_debug: wind_pthread.c
 wind_pthread_2_debug: wind_pthread_2.c
 	$(CC) -Wall -pedantic -ggdb3 -lpthread $< $(LIBS) -o $@
 
+
 # Remove the target files
 clean:
-	rm -rf $(OBJS) wind_pthread wind_pthread_2 wind_seq_debug wind_omp_debug wind_pthread_debug wind_pthread_2_debug wind_mpi_debug *.txt wind_omp_2 wind_omp_2_debug wind_cuda_2 wind_cuda_2_debug wind_mpi
+	rm -rf $(OBJS) wind_pthread wind_pthread_2 wind_seq_debug wind_omp_debug wind_pthread_debug wind_pthread_2_debug wind_mpi_debug *.txt wind_omp_2 wind_omp_2_debug wind_cuda_2 wind_cuda_2_debug wind_mpi wind_omp_cuda
 
 # Compile in debug mode
 debug:

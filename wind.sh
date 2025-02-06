@@ -6,8 +6,10 @@ integration=false
 perf=false
 scaling=false
 valgrind=false
+nvvp=false
+opm=false
 
-while getopts ":bgipsv" option; do
+while getopts ":bgipsvno" option; do
     case $option in
         b) benchmark=true;;
         g) debug=true;;
@@ -15,25 +17,19 @@ while getopts ":bgipsv" option; do
         p) perf=true;;
         s) scaling=true;;
         v) valgrind=true;;
+        n) nvvp=true;;
+        o) omp=true;;
     esac
 done
 
 # ---
 
-# rows=250 columns=250 max_iter=100 var_threshold=0.0
-# rows=250 columns=250 max_iter=2000 var_threshold=0.5
-# rows=250 columns=250 max_iter=4000 var_threshold=0.0
-rows=500 columns=500 max_iter=10000 var_threshold=0.5
-# rows=500 columns=500 max_iter=1000 var_threshold=0.5
+rows=500 columns=10000 max_iter=10000 var_threshold=0.5
 inlet_pos=0 inlet_size=$columns
-particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
-particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=1.0
-# particles_f_band_pos=0 particles_f_band_size=0 particles_f_density=0.0
-# particles_m_band_pos=0 particles_m_band_size=0 particles_m_density=0.0
+particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=0.0
+particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.0
 short_rnd1=$((RANDOM % 10000 + 1)) short_rnd2=$((RANDOM % 10000 + 1)) short_rnd3=$((RANDOM % 10000 + 1))
-# rows=500
-rows=10000
-# columns=10000
+rows=1000
 
 update_args() {
     args="$rows $columns $max_iter $var_threshold $inlet_pos $inlet_size $particles_f_band_pos $particles_f_band_size $particles_f_density $particles_m_band_pos $particles_m_band_size $particles_m_density $short_rnd1 $short_rnd2 $short_rnd3"
@@ -52,10 +48,18 @@ div() {
     echo "$(bc -l <<< "$1/$2")"
 }
 
+if $nvvp; then
+    ./wind_cuda_2 $args
+fi
+
+# if $omp; then
+#     OMP_NUM_THREADS=6 ./wind_omp_2 $args
+# fi
+
 # ---
 
 if $benchmark; then
-    make wind_seq wind_mpi wind_omp wind_cuda wind_cuda_2 wind_pthread wind_omp_2
+    make wind_seq wind_mpi wind_omp wind_cuda wind_cuda_2 wind_pthread wind_omp_2 wind_omp_cuda
 
     echo -e "\nseq"; seq_t=$(./wind_seq $args | get_time)
 
@@ -67,6 +71,7 @@ if $benchmark; then
     echo "S: $(div $seq_t $t)"
     echo "E: $(div $omp_1_t $t)"
 
+
     echo -e "\nomp.2.1"; omp_2_t=$(OMP_NUM_THREADS=1 ./wind_omp_2 $args | get_time)
     echo "S: $(div $seq_t $omp_2_t)"
     echo "E: $(div $omp_2_t $omp_2_t)"
@@ -77,6 +82,13 @@ if $benchmark; then
 
     echo -e "\ncuda.2"; t=$(./wind_cuda_2 $args | get_time)
     echo "S: $(div $seq_t $t)"
+
+    # echo -e "\nomp.cuda"; OMP_NUM_THREADS=6 ./wind_omp_cuda $args 
+
+    # echo -e "\nomp.cuda"; t=$(./wind_omp_cuda $args | get_time)
+    # echo "S: $(div $seq_t $t)"
+fi
+
 
     # echo -e "\nmpi"; t=$(mpirun ./wind_mpi $args | get_time)
 
@@ -98,7 +110,6 @@ if $benchmark; then
     # echo -e "\n\npthread 2"; ./wind_pthread_2 $args
     # echo -e "\n\nmpi"; mpirun ./wind_mpi $args
     # echo -e "\n\ncuda"; ./wind_cuda $args
-fi
 
 if $perf; then 
     make wind_seq wind_omp
@@ -109,12 +120,25 @@ fi
 if $debug; then
     # make wind_omp_2_debug
     # gdb --args ./wind_omp_2_debug $args
-    rows=100 columns=100 max_iter=10 inlet_size=$rows
-    particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=0.0
-    particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.0
+    # rows=100 columns=100 max_iter=1000 inlet_size=$rows
+    # particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
+    # particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.0
 
-    make wind_cuda_2_debug
-    cuda-gdb --args ./wind_cuda_2_debug $args
+    rows=500 columns=500 max_iter=1000 var_threshold=0.5
+    inlet_pos=0 inlet_size=$columns
+    particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
+    particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.0
+    short_rnd1=$((RANDOM % 10000 + 1)) short_rnd2=$((RANDOM % 10000 + 1)) short_rnd3=$((RANDOM % 10000 + 1))
+    rows=1000
+
+    update_args
+
+    make wind_omp_2_debug wind_omp_2
+    export OMP_NUM_THREADS=1
+    gdb --args ./wind_omp_2 $args
+    
+    # make wind_cuda_2_debug
+    # cuda-gdb --args ./wind_cuda_2_debug $args
 
     # make wind_pthread_2_debug
     # gdb --args ./wind_pthread_2_debug $args
@@ -127,16 +151,18 @@ if $debug; then
 fi
 
 if $integration; then
-    rows=200 columns=200 max_iter=1000 inlet_size=$rows
+    rows=200 columns=200 max_iter=500 inlet_size=$rows
     inlet_pos=0 inlet_size=$((columns-2))
+    # particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
+    # particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=1.0
     particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
-    particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.0
+    particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=1.0
     # particles_f_band_pos=1 particles_f_band_size=30 particles_f_density=1.0
     # particles_m_band_pos=1 particles_m_band_size=30 particles_m_density=1.0
     # particles_m_band_pos=12 particles_m_band_size=8 particles_m_density=1.0
     # short_rnd1=4977 short_rnd2=6702 short_rnd3=3051
     # short_rnd1=3436 short_rnd2=9968 short_rnd3=2420
-    short_rnd1=2919 short_rnd2=8592 short_rnd3=4266
+    # short_rnd1=2919 short_rnd2=8592 short_rnd3=4266
     echo "$short_rnd1 $short_rnd2 $short_rnd3"
 
     update_args
@@ -144,7 +170,7 @@ if $integration; then
     make debug
     ./wind_seq $args > seq.txt
     # ./wind_omp $args > omp.txt
-    # OMP_NUM_THREADS=6 ./wind_omp_2 $args > omp_2.txt
+    OMP_NUM_THREADS=6 ./wind_omp_2 $args > omp_2.txt
     ./wind_cuda_2 $args > cuda_2.txt
     # ./wind_pthread $args > pthread.txt
     # ./wind_pthread_2 $args > pthread_2.txt

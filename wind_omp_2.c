@@ -118,6 +118,8 @@ void move_particle(
     // Compute movement for each step
     int row = particles_m_pos[particle].row;
     int col = particles_m_pos[particle].col;
+    int x = col;
+    int y = row;
 
     for (int step = 0; step < STEPS; step++) {
         // Highly simplified phisical model
@@ -422,24 +424,23 @@ int main(int argc, char *argv[]) {
 
     particle_t *moving_particles = particles + num_particles_f;
 
+    qsort(particles, num_particles_f, sizeof(particle_t), particle_cmp);
+    qsort(moving_particles, num_particles_m, sizeof(particle_t), particle_cmp);
+
     /* 3. Initialization */
     flow = calloc(rows * columns, sizeof(int));
     flow_copy = calloc(rows * columns, sizeof(int));
     particle_locations = calloc(rows * columns, sizeof(int));
 
-    qsort(particles, num_particles_f, sizeof(particle_t), particle_cmp);
-    qsort(moving_particles, num_particles_m, sizeof(particle_t), particle_cmp);
-
-    particle_m_t *particles_m = malloc(num_particles_m_band * sizeof(particle_m_t));
-
     vec2_t *particles_pos = malloc(num_particles * sizeof(vec2_t));
+    int *particles_res = malloc(num_particles * sizeof(int)),
+        *particles_back = malloc(num_particles * sizeof(int));
+
+    particle_m_t *particles_m = malloc(num_particles_m * sizeof(particle_m_t));
+    int *particles_m_mass = malloc(num_particles_m * sizeof(float));
     vec2_t *particles_m_pos = particles_pos + num_particles_f;
-
-    int *particles_back = malloc(num_particles * sizeof(int)),
+    int *particles_m_res = particles_res + num_particles_f,
         *particles_m_back = particles_back + num_particles_f;
-
-    int *particles_res = malloc(num_particles * sizeof(int));
-    int *particles_m_mass_part = malloc(num_particles_m * sizeof(float));
 
 #pragma omp parallel for
     for (int particle = 0; particle < num_particles_m; particle++) {
@@ -454,11 +455,8 @@ int main(int argc, char *argv[]) {
             },
         };
 
-        particles_m_mass_part[particle] = moving_particles[particle].mass;
+        particles_m_mass[particle] = moving_particles[particle].mass;
     }
-
-    const int *particles_m_mass = particles_m_mass_part;
-    const int *particles_m_res = particles_res + num_particles_f;
 
 #pragma omp parallel for
     for (int particle = 0; particle < num_particles; particle++) {
@@ -491,157 +489,104 @@ int main(int argc, char *argv[]) {
             // 4.2. Particles movement each STEPS iterations
             // Clean particle positions
 
+            if (num_particles > 0)
 #pragma omp parallel
             {
+                if (num_particles_m > 0)
 #pragma omp for
-                for (int particle = 0; particle < num_particles_m; particle++) {
+                    for (int particle = 0; particle < num_particles_m; particle++) {
 #pragma omp atomic
-                    accessMat(
-                        particle_locations,
-                        particles_m_pos[particle].row,
-                        particles_m_pos[particle].col
-                    )--;
+                        accessMat(
+                            particle_locations,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col
+                        )--;
 
-                    move_particle(
-                        flow,
-                        particles_m,
-                        particle,
-                        precision_rows,
-                        precision_columns,
-                        columns,
-                        particles_m_pos,
-                        particles_m_mass
-                    );
+                        move_particle(
+                            flow,
+                            particles_m,
+                            particle,
+                            precision_rows,
+                            precision_columns,
+                            columns,
+                            particles_m_pos,
+                            particles_m_mass
+                        );
 
 #pragma omp atomic
-                    accessMat(
-                        particle_locations,
-                        particles_m_pos[particle].row,
-                        particles_m_pos[particle].col
-                    )++;
-                }
-
+                        accessMat(
+                            particle_locations,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col
+                        )++;
+                    }
 #endif // MODULE3
 
+                if (num_particles_f > 0)
 #pragma omp for
-                for (int particle = 0; particle < num_particles_f; particle++)
-                    update_flow(
-                        flow,
-                        flow_copy,
-                        particles_pos[particle].row,
-                        particles_pos[particle].col,
-                        columns
-                    );
+                    for (int particle = 0; particle < num_particles_f; particle++)
+                        update_flow(
+                            flow,
+                            flow_copy,
+                            particles_pos[particle].row,
+                            particles_pos[particle].col,
+                            columns
+                        );
 
+                if (num_particles_m > 0)
 #pragma omp for
-                for (int particle = 0; particle < num_particles_m; particle++)
-                    update_flow(
-                        flow,
-                        flow_copy,
-                        particles_m_pos[particle].row,
-                        particles_m_pos[particle].col,
-                        columns
-                    );
+                    for (int particle = 0; particle < num_particles_m; particle++)
+                        update_flow(
+                            flow,
+                            flow_copy,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col,
+                            columns
+                        );
 
+                if (num_particles_f > 0)
 #pragma omp for
-                for (int particle = 0; particle < num_particles_f; particle++) {
-                    int row = particles_pos[particle].row;
-                    int col = particles_pos[particle].col;
-                    particles_back[particle] = (int)((long)accessMat(flow, row, col)
-                                                     * particles_res[particle] / PRECISION)
-                                               / accessMat(particle_locations, row, col);
-                }
-
-#pragma omp for nowait
-                for (int particle = 0; particle < num_particles_m; particle++) {
-                    int row = particles_m_pos[particle].row;
-                    int col = particles_m_pos[particle].col;
-                    particles_m_back[particle] = (int)((long)accessMat(flow, row, col)
-                                                       * particles_m_res[particle] / PRECISION)
-                                                 / accessMat(particle_locations, row, col);
-                }
-
-#pragma omp for
-                for (int particle = 0; particle < num_particles; particle++) {
-                    int row = particles_pos[particle].row;
-                    int col = particles_pos[particle].col;
-                    int back = particles_back[particle];
-
-                    accessMat(flow, row, col) -= back;
-                    accessMat(flow, row - 1, col) += back / 2;
-
-                    if (col > 0) {
-                        accessMat(flow, row - 1, col - 1) += back / 4;
-                    } else {
-                        accessMat(flow, row - 1, col) += back / 4;
+                    for (int particle = 0; particle < num_particles_f; particle++) {
+                        int row = particles_pos[particle].row;
+                        int col = particles_pos[particle].col;
+                        particles_back[particle] = (int)((long)accessMat(flow, row, col)
+                                                         * particles_res[particle] / PRECISION)
+                                                   / accessMat(particle_locations, row, col);
                     }
 
-                    if (col < columns - 1) {
-                        accessMat(flow, row - 1, col + 1) += back / 4;
-                    } else {
-                        accessMat(flow, row - 1, col) += back / 4;
-                    }
-                }
-
-                // #pragma omp for
-                //                 for (int particle = 0; particle < num_particles_m;
-                //                 particle++) {
-                //                     int row = particles_m_pos[particle].row;
-                //                     int col = particles_m_pos[particle].col;
-                //                     int back = particles_m_back[particle];
-                //
-                //                     accessMat(flow, row, col) -= back;
-                //                     accessMat(flow, row - 1, col) += back / 2;
-                //
-                //                     if (col > 0) {
-                //                         accessMat(flow, row - 1, col - 1) += back / 4;
-                //                     } else {
-                //                         accessMat(flow, row - 1, col) += back / 4;
-                //                     }
-                //
-                //                     if (col < columns - 1) {
-                //                         accessMat(flow, row - 1, col + 1) += back / 4;
-                //                     } else {
-                //                         accessMat(flow, row - 1, col) += back / 4;
-                //                     }
-                //                 }
-
-#pragma omp for
-                for (int particle = 0; particle < num_particles_f; particle++) {
-                    int row = particles_pos[particle].row;
-                    int col = particles_pos[particle].col;
-
-                    accessMat(flow_copy, row, col) = accessMat(flow, row, col);
-                    accessMat(flow_copy, row - 1, col) = accessMat(flow, row - 1, col);
-                    if (col > 0)
-                        accessMat(flow_copy, row - 1, col - 1)
-                            = accessMat(flow, row - 1, col - 1);
-                    if (col < columns - 1)
-                        accessMat(flow_copy, row - 1, col + 1)
-                            = accessMat(flow, row - 1, col + 1);
-                }
-
+                if (num_particles_m > 0)
 #pragma omp for nowait
-                for (int particle = 0; particle < num_particles_m; particle++) {
-                    int row = particles_m_pos[particle].row;
-                    int col = particles_m_pos[particle].col;
+                    for (int particle = 0; particle < num_particles_m; particle++) {
+                        int row = particles_m_pos[particle].row;
+                        int col = particles_m_pos[particle].col;
+                        particles_m_back[particle]
+                            = (int)((long)accessMat(flow, row, col) * particles_m_res[particle]
+                                    / PRECISION)
+                              / accessMat(particle_locations, row, col);
+                    }
 
-                    accessMat(flow_copy, row, col) = accessMat(flow, row, col);
-                    accessMat(flow_copy, row - 1, col) = accessMat(flow, row - 1, col);
-                    if (col > 0)
-                        accessMat(flow_copy, row - 1, col - 1)
-                            = accessMat(flow, row - 1, col - 1);
-                    if (col < columns - 1)
-                        accessMat(flow_copy, row - 1, col + 1)
-                            = accessMat(flow, row - 1, col + 1);
-                }
+                if (num_particles > 0)
+#pragma omp single
+                    for (int particle = 0; particle < num_particles; particle++) {
+                        int row = particles_pos[particle].row;
+                        int col = particles_pos[particle].col;
+                        int back = particles_back[particle];
 
-                int last_wave = iter < rows ? iter : rows;
-#pragma omp for
-                for (int wave = 0; wave < last_wave; wave += STEPS)
-                    memcpy(
-                        flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int)
-                    );
+                        accessMat(flow, row, col) -= back;
+                        accessMat(flow, row - 1, col) += back / 2;
+
+                        if (col > 0) {
+                            accessMat(flow, row - 1, col - 1) += back / 4;
+                        } else {
+                            accessMat(flow, row - 1, col) += back / 4;
+                        }
+
+                        if (col < columns - 1) {
+                            accessMat(flow, row - 1, col + 1) += back / 4;
+                        } else {
+                            accessMat(flow, row - 1, col) += back / 4;
+                        }
+                    }
             }
 
             max_var = 0;
@@ -649,47 +594,64 @@ int main(int argc, char *argv[]) {
         }
 
         int wave_front = iter % STEPS;
-        if (wave_front == 0)
+        if (wave_front == 0) {
             wave_front = STEPS;
+
+            if (num_particles_f > 0) {
+#pragma omp parallel for
+                for (int particle = 0; particle < num_particles_f; particle++) {
+                    int row = particles_pos[particle].row;
+                    int col = particles_pos[particle].col;
+
+                    accessMat(flow_copy, row, col) = accessMat(flow, row, col);
+                    accessMat(flow_copy, row - 1, col) = accessMat(flow, row - 1, col);
+                    if (col > 0)
+                        accessMat(flow_copy, row - 1, col - 1)
+                            = accessMat(flow, row - 1, col - 1);
+                    if (col < columns - 1)
+                        accessMat(flow_copy, row - 1, col + 1)
+                            = accessMat(flow, row - 1, col + 1);
+                }
+            }
+
+            if (num_particles_m > 0) {
+                int min_row = INT_MAX;
+                int max_row = 0;
+
+#pragma omp parallel for reduction(min : min_row) reduction(max : max_row)
+                for (int particle = 0; particle < num_particles_m; particle++) {
+                    if (particles_m_pos[particle].row < min_row)
+                        min_row = particles_m_pos[particle].row;
+                    if (particles_m_pos[particle].row > max_row)
+                        max_row = particles_m_pos[particle].row;
+                }
+
+                if (min_row > 1)
+                    min_row--;
+
+                max_row += (rows - max_row < 3 ? rows - max_row : 3);
+
+                memcpy(
+                    flow_copy + min_row * columns,
+                    flow + min_row * columns,
+                    (max_row - min_row) * columns * sizeof(int)
+                );
+            }
+        }
+
         int last_wave = iter + 1 < rows ? iter + 1 : rows;
 
-        // default(none) firstprivate(           \ flow, flow_copy, wave_front,
-        // last_wave, particle_locations, columns    \)
-
-        // if (wave_front != STEPS) {
-// #pragma omp parallel for reduction(max : max_var)
-//     for (int wave = wave_front; wave < last_wave; wave += STEPS) {
-//         for (int col = 0; col < columns; col++)
-//             if (accessMat(particle_locations, wave, col) == 0) {
-//                 int prev = accessMat(flow_copy, wave, col);
-//                 update_flow(flow, flow_copy, wave, col, columns);
-//
-//                 int var = abs(prev - accessMat(flow, wave, col));
-//                 if (var > max_var)
-//                     max_var = var;
-//             }
-//     }
-// } else {
 #pragma omp parallel for reduction(max : max_var)
         for (int wave = wave_front; wave < last_wave; wave += STEPS) {
             for (int col = 0; col < columns; col++)
                 if (accessMat(particle_locations, wave, col) == 0) {
-                    update_flow(flow, flow_copy, wave, col, columns);
-
-                    int var = abs(accessMat(flow_copy, wave, col) - accessMat(flow, wave, col));
+                    int prev = accessMat(flow, wave, col);
+                    update_flow(flow, flow, wave, col, columns);
+                    int var = abs(prev - accessMat(flow, wave, col));
                     if (var > max_var)
                         max_var = var;
-
-                    if (wave_front != STEPS)
-                        accessMat(flow_copy, wave, col) = accessMat(flow, wave, col);
                 }
         }
-        // }
-
-        // if (wave_front != STEPS)
-        //     memcpy(
-        //         flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int)
-        //     );
 
 #ifdef DEBUG
         // 4.7. DEBUG: Print the current state of the simulation at
@@ -1543,3 +1505,86 @@ int main(int argc, char *argv[]) {
 //             disp += count;
 //         }
 //     }
+
+// if (wave_front == 1) {
+//     update_flow(flow, flow_copy, wave, col, columns);
+// } else {
+// }
+// int var = abs(accessMat(flow_copy, wave, col) - accessMat(flow, wave,
+// col));
+// if (wave_front != STEPS)
+//     accessMat(flow_copy, wave, col) = accessMat(flow, wave, col);
+// accessMat(flow_copy, wave, col) = accessMat(flow, wave, col);
+// #pragma omp parallel for num_threads(6)
+// for (int i = 0; i < 6; i++) {
+//     int r = r = rows / 6;
+//     int x = r * i;
+//     memcpy(flow_copy + x * columns, flow + x * columns, r * columns *
+//     sizeof(int));
+// }
+// #pragma omp parallel for
+//             for (int i = 0; i < rows * columns; i++)
+//                 flow_copy[i] = flow[i];
+// default(none) firstprivate(           \ flow, flow_copy, wave_front,
+// last_wave, particle_locations, columns    \)
+
+// if (wave_front != STEPS) {
+// #pragma omp parallel for reduction(max : max_var)
+//     for (int wave = wave_front; wave < last_wave; wave += STEPS) {
+//         for (int col = 0; col < columns; col++)
+//             if (accessMat(particle_locations, wave, col) == 0) {
+//                 int prev = accessMat(flow_copy, wave, col);
+//                 update_flow(flow, flow_copy, wave, col, columns);
+//
+//                 int var = abs(prev - accessMat(flow, wave, col));
+//                 if (var > max_var)
+//                     max_var = var;
+//             }
+//     }
+// } else {
+// }
+
+// if (wave_front != STEPS)
+//     memcpy(
+//         flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int)
+//     );
+
+// #pragma omp for
+//                 for (int particle = 0; particle < num_particles_f;
+//                 particle++) {
+//                     int row = particles_pos[particle].row;
+//                     int col = particles_pos[particle].col;
+//
+//                     accessMat(flow_copy, row, col) = accessMat(flow, row,
+//                     col); accessMat(flow_copy, row - 1, col) =
+//                     accessMat(flow, row - 1, col); if (col > 0)
+//                         accessMat(flow_copy, row - 1, col - 1)
+//                             = accessMat(flow, row - 1, col - 1);
+//                     if (col < columns - 1)
+//                         accessMat(flow_copy, row - 1, col + 1)
+//                             = accessMat(flow, row - 1, col + 1);
+//                 }
+//
+// #pragma omp for nowait
+//                 for (int particle = 0; particle < num_particles_m;
+//                 particle++) {
+//                     int row = particles_m_pos[particle].row;
+//                     int col = particles_m_pos[particle].col;
+//
+//                     accessMat(flow_copy, row, col) = accessMat(flow, row,
+//                     col); accessMat(flow_copy, row - 1, col) =
+//                     accessMat(flow, row - 1, col); if (col > 0)
+//                         accessMat(flow_copy, row - 1, col - 1)
+//                             = accessMat(flow, row - 1, col - 1);
+//                     if (col < columns - 1)
+//                         accessMat(flow_copy, row - 1, col + 1)
+//                             = accessMat(flow, row - 1, col + 1);
+//                 }
+//
+//                 int last_wave = iter < rows ? iter : rows;
+// #pragma omp for
+//                 for (int wave = 0; wave < last_wave; wave += STEPS)
+//                     memcpy(
+//                         flow_copy + wave * columns, flow + wave * columns,
+//                         columns * sizeof(int)
+//                     );
