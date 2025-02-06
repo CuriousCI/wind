@@ -10,8 +10,8 @@
  *
  * (c) 2021 Arturo Gonzalez Escribano
  *
- * This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License.
- * https://creativecommons.org/licenses/by-sa/4.0/
+ * This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International
+ * License. https://creativecommons.org/licenses/by-sa/4.0/
  */
 #include <limits.h>
 #include <math.h>
@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include <unistd.h> /* TODO */
 
 #define PRECISION 10000
 #define STEPS 8
@@ -62,22 +61,40 @@ double cp_Wtime() {
  * Function: Update flow in a matrix position
  * 	This function can be changed and/or optimized by the students
  */
-int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int col, int columns, int skip_particles) {
+int update_flow(
+    int *flow,
+    int *flow_copy,
+    int *particle_locations,
+    int row,
+    int col,
+    int columns,
+    int skip_particles
+) {
     // Skip update in particle positions
     if (skip_particles && accessMat(particle_locations, row, col) != 0)
         return 0;
 
     // Update if border left
     if (col == 0) {
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col + 1)) / 4;
+        accessMat(flow, row, col)
+            = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+               + accessMat(flow_copy, row - 1, col + 1))
+              / 4;
     }
     // Update if border right
     if (col == columns - 1) {
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col - 1)) / 4;
+        accessMat(flow, row, col)
+            = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+               + accessMat(flow_copy, row - 1, col - 1))
+              / 4;
     }
     // Update in central part
     if (col > 0 && col < columns - 1) {
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2 + accessMat(flow_copy, row - 1, col - 1) + accessMat(flow_copy, row - 1, col + 1)) / 5;
+        accessMat(flow, row, col)
+            = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+               + accessMat(flow_copy, row - 1, col - 1)
+               + accessMat(flow_copy, row - 1, col + 1))
+              / 5;
     }
 
     // Return flow variation at this position
@@ -114,8 +131,10 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         particles[particle].speed_col = (particles[particle].speed_col + flow_col) / 2;
 
         // Movement
-        particles[particle].pos_row = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
-        particles[particle].pos_col = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
+        particles[particle].pos_row
+            = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
+        particles[particle].pos_col
+            = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
 
         // Control limits
         if (particles[particle].pos_row >= PRECISION * rows)
@@ -131,7 +150,15 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
 /*
  * Function: Print the current state of the simulation
  */
-void print_status(int iteration, int rows, int columns, int *flow, int num_particles, int *particle_locations, int max_var) {
+void print_status(
+    int iteration,
+    int rows,
+    int columns,
+    int *flow,
+    int num_particles,
+    int *particle_locations,
+    int max_var
+) {
     /*
      * You don't need to optimize this function, it is only for pretty
      * printing and debugging purposes.
@@ -183,7 +210,13 @@ void print_status(int iteration, int rows, int columns, int *flow, int num_parti
  */
 void show_usage(char *program_name) {
     fprintf(stderr, "Usage: %s ", program_name);
-    fprintf(stderr, "<rows> <columns> <maxIter> <threshold> <inlet_pos> <inlet_size> <fixed_particles_pos> <fixed_particles_size> <fixed_particles_density> <moving_particles_pos> <moving_particles_size> <moving_particles_density> <short_rnd1> <short_rnd2> <short_rnd3> [ <fixed_row> <fixed_col> <fixed_resistance> ... ]\n");
+    fprintf(
+        stderr,
+        "<rows> <columns> <maxIter> <threshold> <inlet_pos> <inlet_size> <fixed_particles_pos> "
+        "<fixed_particles_size> <fixed_particles_density> <moving_particles_pos> "
+        "<moving_particles_size> <moving_particles_density> <short_rnd1> <short_rnd2> "
+        "<short_rnd3> [ <fixed_row> <fixed_col> <fixed_resistance> ... ]\n"
+    );
     fprintf(stderr, "\n");
 }
 
@@ -219,7 +252,11 @@ int main(int argc, char *argv[]) {
     /* 1. Read simulation arguments */
     /* 1.1. Check minimum number of arguments */
     if (argc < 16) {
-        fprintf(stderr, "-- Error: Not enough arguments when reading configuration from the command line\n\n");
+        fprintf(
+            stderr,
+            "-- Error: Not enough arguments when reading configuration from the command "
+            "line\n\n"
+        );
         show_usage(argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -267,7 +304,9 @@ int main(int argc, char *argv[]) {
     if (num_particles > 0) {
         particles = (Particle *)malloc(num_particles * sizeof(Particle));
         if (particles == NULL) {
-            fprintf(stderr, "-- Error allocating particles structure for size: %d\n", num_particles);
+            fprintf(
+                stderr, "-- Error allocating particles structure for size: %d\n", num_particles
+            );
             exit(EXIT_FAILURE);
         }
     } else
@@ -288,7 +327,9 @@ int main(int argc, char *argv[]) {
     }
     /* 1.6.2. Generate fixed particles in the band */
     for (; particle < num_particles - num_particles_m_band; particle++) {
-        particles[particle].pos_row = (int)(PRECISION * (particles_f_band_pos + particles_f_band_size * erand48(random_seq)));
+        particles[particle].pos_row
+            = (int)(PRECISION
+                    * (particles_f_band_pos + particles_f_band_size * erand48(random_seq)));
         particles[particle].pos_col = (int)(PRECISION * columns * erand48(random_seq));
         particles[particle].mass = 0;
         particles[particle].resistance = (int)(PRECISION * erand48(random_seq));
@@ -298,7 +339,9 @@ int main(int argc, char *argv[]) {
 
     /* 1.7. Generate moving particles in the band */
     for (; particle < num_particles; particle++) {
-        particles[particle].pos_row = (int)(PRECISION * (particles_m_band_pos + particles_m_band_size * erand48(random_seq)));
+        particles[particle].pos_row
+            = (int)(PRECISION
+                    * (particles_m_band_pos + particles_m_band_size * erand48(random_seq)));
         particles[particle].pos_col = (int)(PRECISION * columns * erand48(random_seq));
         particles[particle].mass = (int)(PRECISION * (1 + 5 * erand48(random_seq)));
         particles[particle].resistance = (int)(PRECISION * erand48(random_seq));
@@ -308,12 +351,43 @@ int main(int argc, char *argv[]) {
 
 #ifdef DEBUG
     // 1.8. Print arguments
-    printf("Arguments, Rows: %d, Columns: %d, max_iter: %d, threshold: %f\n", rows, columns, max_iter, (float)var_threshold / PRECISION);
-    printf("Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  Band of moving particles: %d, %d, %f\n", inlet_pos, inlet_size, particles_f_band_pos, particles_f_band_size, particles_f_density, particles_m_band_pos, particles_m_band_size, particles_m_density);
-    printf("Arguments, Init Random Sequence: %hu,%hu,%hu\n", random_seq[0], random_seq[1], random_seq[2]);
+    printf(
+        "Arguments, Rows: %d, Columns: %d, max_iter: %d, threshold: %f\n",
+        rows,
+        columns,
+        max_iter,
+        (float)var_threshold / PRECISION
+    );
+    printf(
+        "Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  Band of moving "
+        "particles: %d, %d, %f\n",
+        inlet_pos,
+        inlet_size,
+        particles_f_band_pos,
+        particles_f_band_size,
+        particles_f_density,
+        particles_m_band_pos,
+        particles_m_band_size,
+        particles_m_density
+    );
+    printf(
+        "Arguments, Init Random Sequence: %hu,%hu,%hu\n",
+        random_seq[0],
+        random_seq[1],
+        random_seq[2]
+    );
     printf("Particles: %d\n", num_particles);
     for (int particle = 0; particle < num_particles; particle++) {
-        printf("Particle[%d] = { %d, %d, %d, %d, %d, %d }\n", particle, particles[particle].pos_row, particles[particle].pos_col, particles[particle].mass, particles[particle].resistance, particles[particle].speed_row, particles[particle].speed_col);
+        printf(
+            "Particle[%d] = { %d, %d, %d, %d, %d, %d }\n",
+            particle,
+            particles[particle].pos_row,
+            particles[particle].pos_col,
+            particles[particle].mass,
+            particles[particle].resistance,
+            particles[particle].speed_row,
+            particles[particle].speed_col
+        );
     }
     printf("\n");
 #endif // DEBUG
@@ -328,20 +402,30 @@ int main(int argc, char *argv[]) {
      */
 
     /* 3. Initialization */
-
-    flow = (int *)calloc((size_t)rows * (size_t)columns, sizeof(int));
-    flow_copy = (int *)calloc((size_t)rows * (size_t)columns, sizeof(int));
-    particle_locations = (int *)calloc((size_t)rows * (size_t)columns, sizeof(int));
+    flow = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
+    flow_copy = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
+    particle_locations = (int *)malloc(sizeof(int) * (size_t)rows * (size_t)columns);
 
     if (flow == NULL || flow_copy == NULL || particle_locations == NULL) {
-        fprintf(stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns);
+        fprintf(
+            stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns
+        );
         exit(EXIT_FAILURE);
+    }
+
+    for (i = 0; i < rows; i++) {
+        for (j = 0; j < columns; j++) {
+            accessMat(flow, i, j) = 0;
+            accessMat(flow_copy, i, j) = 0;
+            accessMat(particle_locations, i, j) = 0;
+        }
     }
 
     /* 4. Simulation */
     int max_var = INT_MAX;
     int iter;
     for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
+
         // 4.1. Change inlet values each STEP iterations
         if (iter % STEPS == 1) {
             for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
@@ -366,7 +450,6 @@ int main(int argc, char *argv[]) {
             for (i = 0; i <= iter && i < rows; i++)
                 for (j = 0; j < columns; j++)
                     accessMat(particle_locations, i, j) = 0;
-            // memset(particle_locations, 0, sizeof(int) * rows * columns);
 
             int particle;
             for (particle = 0; particle < num_particles; particle++) {
@@ -380,7 +463,11 @@ int main(int argc, char *argv[]) {
 
             // Annotate position
             for (particle = 0; particle < num_particles; particle++) {
-                accessMat(particle_locations, particles[particle].pos_row / PRECISION, particles[particle].pos_col / PRECISION) += 1;
+                accessMat(
+                    particle_locations,
+                    particles[particle].pos_row / PRECISION,
+                    particles[particle].pos_col / PRECISION
+                ) += 1;
             }
         } // End particles movements
 #endif // MODULE3
@@ -395,14 +482,13 @@ int main(int argc, char *argv[]) {
                 update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
                 particles[particle].old_flow = accessMat(flow, row, col);
             }
-
             for (particle = 0; particle < num_particles; particle++) {
                 int row = particles[particle].pos_row / PRECISION;
                 int col = particles[particle].pos_col / PRECISION;
-
                 int resistance = particles[particle].resistance;
 
-                int back = (int)((long)particles[particle].old_flow * resistance / PRECISION) / accessMat(particle_locations, row, col);
+                int back = (int)((long)particles[particle].old_flow * resistance / PRECISION)
+                           / accessMat(particle_locations, row, col);
                 accessMat(flow, row, col) -= back;
 
                 accessMat(flow, row - 1, col) += back / 2;
@@ -439,7 +525,8 @@ int main(int argc, char *argv[]) {
                 continue;
             int col;
             for (col = 0; col < columns; col++) {
-                int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
+                int var
+                    = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
                 if (var > max_var) {
                     max_var = var;
                 }
@@ -448,9 +535,7 @@ int main(int argc, char *argv[]) {
 
 #ifdef DEBUG
         // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration
-        /*printf("\033[2J\033[H");*/
         print_status(iter, rows, columns, flow, num_particles, particle_locations, max_var);
-        usleep(17 * 1000);
 #endif
 
     } // End iterations
@@ -490,3 +575,4 @@ int main(int argc, char *argv[]) {
     /* 8. End */
     return 0;
 }
+

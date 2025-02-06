@@ -13,6 +13,7 @@
  * This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License.
  * https://creativecommons.org/licenses/by-sa/4.0/
  */
+#include "util.h"
 #include <limits.h>
 #include <math.h>
 #include <pthread.h>
@@ -43,7 +44,7 @@ typedef struct {
     int resistance;           // Resistance to air flow
     int speed_row, speed_col; // Movement direction and speed
     int old_flow;             // To annotate the flow before applying effects
-} Particle;
+} particle_t;
 
 /*
  * Function to get wall time
@@ -91,7 +92,7 @@ int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int
  * Function: Move particle
  * 	This function can be changed and/or optimized by the students
  */
-void move_particle(int *flow, Particle *particles, int particle, int rows, int columns) {
+void move_particle(int *flow, particle_t *particles, int particle, int rows, int columns) {
     for (int step = 0; step < STEPS; step++) {
         int row = particles[particle].pos_row / PRECISION;
         int col = particles[particle].pos_col / PRECISION;
@@ -181,30 +182,10 @@ void show_usage(char *program_name) {
 }
 
 typedef struct {
-    int displ, count;
-} sect_t;
-
-sect_t sector(int total, int rank) {
-    int offset = 0,
-        rank_items = total / THREADS_SIZE,
-        left_items = total % THREADS_SIZE,
-        displ = 0,
-        count = 0;
-
-    for (int thread = 0; thread <= rank; thread++) {
-        displ = offset;
-        count = rank_items + (thread < left_items);
-        offset += count;
-    }
-
-    return (sect_t){displ, count};
-}
-
-typedef struct {
     int rank, inlet_pos, inlet_size, rows, columns, num_particles, max_iter, var_threshold, num_particles_m_band;
     unsigned short *random_seq;
     int *iter, *max_var, *flow, *flow_copy, *particle_locations, *fixed_particle_locations;
-    Particle *particles;
+    particle_t *particles;
     pthread_barrier_t *barrier;
     pthread_mutex_t *max_var_mutex;
 } args_t;
@@ -220,16 +201,16 @@ void *routine(void *argv) {
     int *flow = args.flow, *flow_copy = args.flow_copy, *particle_locations = args.particle_locations,
         *fixed_particle_locations = args.fixed_particle_locations;
     unsigned short *random_seq = args.random_seq;
-    Particle *particles = args.particles;
+    particle_t *particles = args.particles;
 
     pthread_barrier_t *barrier = args.barrier;
 
     int num_particles_f = num_particles - num_particles_m_band;
-    sect_t particles_m_sect = sector(num_particles_m_band, rank);
-    sect_t particles_sect = sector(num_particles, rank);
+    sect_t particles_m_sect = sector(num_particles_m_band, rank, THREADS_SIZE);
+    sect_t particles_sect = sector(num_particles, rank, THREADS_SIZE);
     particles_m_sect.displ += num_particles_f;
 
-    sect_t cols_sect = sector(columns, rank);
+    sect_t cols_sect = sector(columns, rank, THREADS_SIZE);
 
     int max_var = INT_MAX, iter;
     for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
@@ -380,8 +361,8 @@ int main(int argc, char *argv[]) {
 
     unsigned short random_seq[3]; // Status of the random sequence
 
-    int num_particles;   // Number of particles
-    Particle *particles; // List to store cells information
+    int num_particles;     // Number of particles
+    particle_t *particles; // List to store cells information
 
     /* 1. Read simulation arguments */
     /* 1.1. Check minimum number of arguments */
@@ -432,7 +413,7 @@ int main(int argc, char *argv[]) {
 
     // Allocate space for particles
     if (num_particles > 0) {
-        particles = (Particle *)malloc(num_particles * sizeof(Particle));
+        particles = (particle_t *)malloc(num_particles * sizeof(particle_t));
         if (particles == NULL) {
             fprintf(stderr, "-- Error allocating particles structure for size: %d\n", num_particles);
             exit(EXIT_FAILURE);

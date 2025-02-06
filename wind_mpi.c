@@ -10,9 +10,10 @@
  *
  * (c) 2021 Arturo Gonzalez Escribano
  *
- * This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License.
- * https://creativecommons.org/licenses/by-sa/4.0/
+ * This work is licensed under a Creative Commons Attribution-ShareAlike 4.0
+ * International License. https://creativecommons.org/licenses/by-sa/4.0/
  */
+#include "util.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -43,7 +44,7 @@ typedef struct {
     int resistance;           // Resistance to air flow
     int speed_row, speed_col; // Movement direction and speed
     int old_flow;             // To annotate the flow before applying effects
-} Particle;
+} particle_t;
 
 /*
  * Function to get wall time
@@ -55,8 +56,8 @@ double cp_Wtime() {
 }
 
 /*
- * Macro function to simplify accessing with two coordinates to a flattened array
- * 	This macro-function can be changed and/or optimized by the students
+ * Macro function to simplify accessing with two coordinates to a flattened
+ * array This macro-function can be changed and/or optimized by the students
  *
  */
 #define accessMat(arr, exp1, exp2) arr[(int)(exp1) * columns + (int)(exp2)]
@@ -65,35 +66,40 @@ double cp_Wtime() {
  * Function: Update flow in a matrix position
  * 	This function can be changed and/or optimized by the students
  */
-int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int col, int columns, int skip_particles) {
+int update_flow(
+    int *flow,
+    int *flow_copy,
+    int *particle_locations,
+    int row,
+    int col,
+    int columns,
+    int skip_particles
+) {
     // Skip update in particle positions
     if (skip_particles && accessMat(particle_locations, row, col) != 0)
         return 0;
 
     // Update if border left
     if (col == 0) {
-        accessMat(flow, row, col) =
-            (accessMat(flow_copy, row, col) +
-             accessMat(flow_copy, row - 1, col) * 2 +
-             accessMat(flow_copy, row - 1, col + 1)) /
-            4;
+        accessMat(flow, row, col)
+            = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+               + accessMat(flow_copy, row - 1, col + 1))
+              / 4;
     }
     // Update if border right
     if (col == columns - 1) {
-        accessMat(flow, row, col) =
-            (accessMat(flow_copy, row, col) +
-             accessMat(flow_copy, row - 1, col) * 2 +
-             accessMat(flow_copy, row - 1, col - 1)) /
-            4;
+        accessMat(flow, row, col)
+            = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+               + accessMat(flow_copy, row - 1, col - 1))
+              / 4;
     }
     // Update in central part
     if (col > 0 && col < columns - 1) {
-        accessMat(flow, row, col) =
-            (accessMat(flow_copy, row, col) +
-             accessMat(flow_copy, row - 1, col) * 2 +
-             accessMat(flow_copy, row - 1, col - 1) +
-             accessMat(flow_copy, row - 1, col + 1)) /
-            5;
+        accessMat(flow, row, col)
+            = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+               + accessMat(flow_copy, row - 1, col - 1)
+               + accessMat(flow_copy, row - 1, col + 1))
+              / 5;
     }
 
     // Return flow variation at this position
@@ -104,7 +110,7 @@ int update_flow(int *flow, int *flow_copy, int *particle_locations, int row, int
  * Function: Move particle
  * 	This function can be changed and/or optimized by the students
  */
-void move_particle(int *flow, Particle *particles, int particle, int rows, int columns) {
+void move_particle(int *flow, particle_t *particles, int particle, int rows, int columns) {
     // Compute movement for each step
     int step;
     for (step = 0; step < STEPS; step++) {
@@ -126,16 +132,14 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         int flow_col = (int)((float)(right - left) / particles[particle].mass * PRECISION);
 
         // Speed change
-        particles[particle].speed_row =
-            (particles[particle].speed_row + flow_row) / 2;
-        particles[particle].speed_col =
-            (particles[particle].speed_col + flow_col) / 2;
+        particles[particle].speed_row = (particles[particle].speed_row + flow_row) / 2;
+        particles[particle].speed_col = (particles[particle].speed_col + flow_col) / 2;
 
         // Movement
-        particles[particle].pos_row =
-            particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
-        particles[particle].pos_col =
-            particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
+        particles[particle].pos_row
+            = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
+        particles[particle].pos_col
+            = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
 
         // Control limits
         if (particles[particle].pos_row >= PRECISION * rows)
@@ -147,15 +151,19 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
     }
 }
 
-typedef struct {
-    int row, col;
-} ParticlePos;
-
 #ifdef DEBUG
 /*
  * Function: Print the current state of the simulation
  */
-void print_status(int iteration, int rows, int columns, int *flow, int num_particles, int *particle_locations, int max_var) {
+void print_status(
+    int iteration,
+    int rows,
+    int columns,
+    int *flow,
+    int num_particles,
+    int *particle_locations,
+    int max_var
+) {
     /*
      * You don't need to optimize this function, it is only for pretty
      * printing and debugging purposes.
@@ -163,9 +171,7 @@ void print_status(int iteration, int rows, int columns, int *flow, int num_parti
      * Thus, it is never used when measuring times in the leaderboard
      */
     int i, j;
-    printf("Iteration: %d, max_var: %f\n",
-           iteration,
-           (float)max_var / PRECISION);
+    printf("Iteration: %d, max_var: %f\n", iteration, (float)max_var / PRECISION);
 
     printf("  +");
     for (j = 0; j < columns; j++)
@@ -209,7 +215,15 @@ void print_status(int iteration, int rows, int columns, int *flow, int num_parti
  */
 void show_usage(char *program_name) {
     fprintf(stderr, "Usage: %s ", program_name);
-    fprintf(stderr, "<rows> <columns> <maxIter> <threshold> <inlet_pos> <inlet_size> <fixed_particles_pos> <fixed_particles_size> <fixed_particles_density> <moving_particles_pos> <moving_particles_size> <moving_particles_density> <short_rnd1> <short_rnd2> <short_rnd3> [ <fixed_row> <fixed_col> <fixed_resistance> ... ]\n");
+    fprintf(
+        stderr,
+        "<rows> <columns> <maxIter> <threshold> <inlet_pos> <inlet_size> "
+        "<fixed_particles_pos> <fixed_particles_size> "
+        "<fixed_particles_density> <moving_particles_pos> "
+        "<moving_particles_size> <moving_particles_density> <short_rnd1> "
+        "<short_rnd2> <short_rnd3> [ <fixed_row> <fixed_col> "
+        "<fixed_resistance> ... ]\n"
+    );
     fprintf(stderr, "\n");
 }
 
@@ -230,17 +244,19 @@ int main(int argc, char *argv[]) {
 
     int inlet_pos;             // First position of the inlet
     int inlet_size;            // Inlet size
-    int particles_f_band_pos;  // First position of the band where fixed particles start
+    int particles_f_band_pos;  // First position of the band where fixed
+                               // particles start
     int particles_f_band_size; // Size of the band where fixed particles start
-    int particles_m_band_pos;  // First position of the band where moving particles start
+    int particles_m_band_pos;  // First position of the band where moving
+                               // particles start
     int particles_m_band_size; // Size of the band where moving particles start
     float particles_f_density; // Density of starting fixed particles
     float particles_m_density; // Density of starting moving particles
 
     unsigned short random_seq[3]; // Status of the random sequence
 
-    int num_particles;   // Number of particles
-    Particle *particles; // List to store cells information
+    int num_particles;     // Number of particles
+    particle_t *particles; // List to store cells information
 
     /* 0. Initialize MPI */
     MPI_Init(&argc, &argv);
@@ -250,12 +266,17 @@ int main(int argc, char *argv[]) {
     /* 1. Read simulation arguments */
     /* 1.1. Check minimum number of arguments */
     if (argc < 16) {
-        fprintf(stderr, "-- Error: Not enough arguments when reading configuration from the command line\n\n");
+        fprintf(
+            stderr,
+            "-- Error: Not enough arguments when reading configuration from "
+            "the command line\n\n"
+        );
         show_usage(argv[0]);
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
-    /* 1.2. Read simulation area sizes, maximum number of iterations and threshold */
+    /* 1.2. Read simulation area sizes, maximum number of iterations and
+     * threshold */
     rows = atoi(argv[1]);
     columns = atoi(argv[2]);
     max_iter = atoi(argv[3]);
@@ -296,9 +317,11 @@ int main(int argc, char *argv[]) {
 
     // Allocate space for particles
     if (num_particles > 0) {
-        particles = (Particle *)malloc(num_particles * sizeof(Particle));
+        particles = (particle_t *)malloc(num_particles * sizeof(particle_t));
         if (particles == NULL) {
-            fprintf(stderr, "-- Error allocating particles structure for size: %d\n", num_particles);
+            fprintf(
+                stderr, "-- Error allocating particles structure for size: %d\n", num_particles
+            );
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
     } else
@@ -319,7 +342,9 @@ int main(int argc, char *argv[]) {
     }
     /* 1.6.2. Generate fixed particles in the band */
     for (; particle < num_particles - num_particles_m_band; particle++) {
-        particles[particle].pos_row = (int)(PRECISION * (particles_f_band_pos + particles_f_band_size * erand48(random_seq)));
+        particles[particle].pos_row
+            = (int)(PRECISION
+                    * (particles_f_band_pos + particles_f_band_size * erand48(random_seq)));
         particles[particle].pos_col = (int)(PRECISION * columns * erand48(random_seq));
         particles[particle].mass = 0;
         particles[particle].resistance = (int)(PRECISION * erand48(random_seq));
@@ -329,7 +354,9 @@ int main(int argc, char *argv[]) {
 
     /* 1.7. Generate moving particles in the band */
     for (; particle < num_particles; particle++) {
-        particles[particle].pos_row = (int)(PRECISION * (particles_m_band_pos + particles_m_band_size * erand48(random_seq)));
+        particles[particle].pos_row
+            = (int)(PRECISION
+                    * (particles_m_band_pos + particles_m_band_size * erand48(random_seq)));
         particles[particle].pos_col = (int)(PRECISION * columns * erand48(random_seq));
         particles[particle].mass = (int)(PRECISION * (1 + 5 * erand48(random_seq)));
         particles[particle].resistance = (int)(PRECISION * erand48(random_seq));
@@ -340,19 +367,43 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG
     // 1.8. Print arguments
     if (rank == 0) {
-        printf("Arguments, Rows: %d, Columns: %d, max_iter: %d, threshold: %f\n", rows, columns, max_iter, (float)var_threshold / PRECISION);
-        printf("Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  Band of moving particles: %d, %d, %f\n", inlet_pos, inlet_size, particles_f_band_pos, particles_f_band_size, particles_f_density, particles_m_band_pos, particles_m_band_size, particles_m_density);
-        printf("Arguments, Init Random Sequence: %hu,%hu,%hu\n", random_seq[0], random_seq[1], random_seq[2]);
+        printf(
+            "Arguments, Rows: %d, Columns: %d, max_iter: %d, threshold: %f\n",
+            rows,
+            columns,
+            max_iter,
+            (float)var_threshold / PRECISION
+        );
+        printf(
+            "Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  "
+            "Band of moving particles: %d, %d, %f\n",
+            inlet_pos,
+            inlet_size,
+            particles_f_band_pos,
+            particles_f_band_size,
+            particles_f_density,
+            particles_m_band_pos,
+            particles_m_band_size,
+            particles_m_density
+        );
+        printf(
+            "Arguments, Init Random Sequence: %hu,%hu,%hu\n",
+            random_seq[0],
+            random_seq[1],
+            random_seq[2]
+        );
         printf("Particles: %d\n", num_particles);
         for (int particle = 0; particle < num_particles; particle++) {
-            printf("Particle[%d] = { %d, %d, %d, %d, %d, %d }\n",
-                   particle,
-                   particles[particle].pos_row,
-                   particles[particle].pos_col,
-                   particles[particle].mass,
-                   particles[particle].resistance,
-                   particles[particle].speed_row,
-                   particles[particle].speed_col);
+            printf(
+                "Particle[%d] = { %d, %d, %d, %d, %d, %d }\n",
+                particle,
+                particles[particle].pos_row,
+                particles[particle].pos_col,
+                particles[particle].mass,
+                particles[particle].resistance,
+                particles[particle].speed_row,
+                particles[particle].speed_col
+            );
         }
         printf("\n");
     }
@@ -375,25 +426,70 @@ int main(int argc, char *argv[]) {
     int resultsB[6];
     int resultsC[6];
 
-    // MPI Version: Eliminate this conditional to start doing the work in parallel
+    // MPI Version: Eliminate this conditional to start doing the work in
+    // parallel
+    int comm_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
     /* 3. Initialization */
     flow = (int *)calloc(rows * columns, sizeof(int));
     flow_copy = (int *)calloc(rows * columns, sizeof(int));
     particle_locations = (int *)calloc(rows * columns, sizeof(int));
     int *backs = malloc(num_particles * sizeof(int));
-    ParticlePos *particles_pos = malloc(num_particles * sizeof(ParticlePos));
+    vec2_t *particles_pos = malloc(num_particles * sizeof(vec2_t));
 
     int num_particles_f = num_particles - num_particles_m_band;
     for (int particle = 0; particle < num_particles; particle++) {
         particles_pos[particle].row = particles[particle].pos_row / PRECISION;
         particles_pos[particle].col = particles[particle].pos_col / PRECISION;
-        accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;
+        accessMat(
+            particle_locations, particles_pos[particle].row, particles_pos[particle].col
+        )++;
     }
 
+    int *particles_m_displs = malloc(comm_size * sizeof(int)),
+        *particles_m_counts = malloc(comm_size * sizeof(int));
+    // scatter_all(
+    //     num_particles - num_particles_f, comm_size, particles_m_displs, particles_m_counts
+    // );
+
+    int *particles_displs = malloc(comm_size * sizeof(int)),
+        *particles_counts = malloc(comm_size * sizeof(int));
+    // scatter_all(num_particles, comm_size, particles_displs, particles_counts);
+
     if (flow == NULL || flow_copy == NULL || particle_locations == NULL) {
-        fprintf(stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns);
+        fprintf(
+            stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns
+        );
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+
+    MPI_Datatype MPI_PARTICLE;
+
+    {
+        MPI_Aint addr[8], particle_t_displs[8] = {0};
+        int particle_t_block_lenghts[] = {1, 1, 1, 1, 1, 1, 1, 1};
+        MPI_Datatype particle_t_types[]
+            = {MPI_UNSIGNED_CHAR, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT
+            };
+        particle_t t = {0};
+
+        MPI_Get_address(&t.extra, addr);
+        MPI_Get_address(&t.pos_row, addr + 1);
+        MPI_Get_address(&t.pos_col, addr + 2);
+        MPI_Get_address(&t.mass, addr + 3);
+        MPI_Get_address(&t.resistance, addr + 4);
+        MPI_Get_address(&t.speed_row, addr + 5);
+        MPI_Get_address(&t.speed_col, addr + 6);
+        MPI_Get_address(&t.old_flow, addr + 7);
+
+        for (int i = 1; i < 8; i++)
+            particles_displs[i] = addr[i] - addr[0];
+
+        MPI_Type_create_struct(
+            8, particle_t_block_lenghts, particle_t_displs, particle_t_types, &MPI_PARTICLE
+        );
+        MPI_Type_commit(&MPI_PARTICLE);
     }
 
     /* 4. Simulation */
@@ -403,31 +499,60 @@ int main(int argc, char *argv[]) {
         if (iter % STEPS == 1) {
             if (rank == 0) {
                 for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
-                    // 4.1.1. Change the fans phase
                     double phase = iter / STEPS * (M_PI / 4);
                     double phase_step = M_PI / 2 / inlet_size;
                     double pressure_level = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
-
-                    // 4.1.2. Add some random noise
                     double noise = 0.5 - erand48(random_seq);
-
-                    // 4.1.3. Store level in the first row of the ancillary structure
                     accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
                 }
             }
 
+            MPI_Bcast(flow, columns, MPI_INT, 0, MPI_COMM_WORLD);
+
+#ifdef MODULE2
+#ifdef MODULE3
+
             if (rank == 0) {
                 for (int particle = num_particles_f; particle < num_particles; particle++)
-                    accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)--;
+                    accessMat(
+                        particle_locations,
+                        particles_pos[particle].row,
+                        particles_pos[particle].col
+                    )--;
+            }
 
+            if (rank == 0) {
                 for (int particle = num_particles_f; particle < num_particles; particle++) {
                     move_particle(flow, particles, particle, rows, columns);
                     particles_pos[particle].row = particles[particle].pos_row / PRECISION;
                     particles_pos[particle].col = particles[particle].pos_col / PRECISION;
                 }
+            }
 
+            if (rank == 0) {
                 for (int particle = num_particles_f; particle < num_particles; particle++)
-                    accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;
+                    accessMat(
+                        particle_locations,
+                        particles_pos[particle].row,
+                        particles_pos[particle].col
+                    )++;
+            }
+
+            if (rank == 0) {
+                for (int particle = 0; particle < num_particles; particle++) {
+                    int row = particles_pos[particle].row;
+                    int col = particles_pos[particle].col;
+
+                    update_flow(flow, flow_copy, particle_locations, row, col, columns, 0);
+                    particles[particle].old_flow = accessMat(flow, row, col);
+                    backs[particle] = (int)((long)particles[particle].old_flow
+                                            * particles[particle].resistance / PRECISION)
+                                      / accessMat(
+                                          particle_locations,
+                                          particles_pos[particle].row,
+                                          particles_pos[particle].col
+                                      );
+                }
             }
 
             if (rank == 0) {
@@ -450,10 +575,7 @@ int main(int argc, char *argv[]) {
             }
         } // End inlet update
 
-#ifdef MODULE2
-#ifdef MODULE3
 #endif // MODULE3
-#endif // MODULE2
 
         if (rank == 0) {
             if (iter % STEPS == 1)
@@ -464,7 +586,9 @@ int main(int argc, char *argv[]) {
                     wave_front = STEPS;
 
                 for (int wave = wave_front; wave < (iter < rows ? iter : rows); wave += STEPS)
-                    memcpy(flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int));
+                    memcpy(
+                        flow_copy + wave * columns, flow + wave * columns, columns * sizeof(int)
+                    );
             }
         }
 
@@ -481,18 +605,23 @@ int main(int argc, char *argv[]) {
             if (wave_front == 0)
                 wave_front = STEPS;
 
-            for (int wave = wave_front; wave < (iter + 1 < rows ? iter + 1 : rows); wave += STEPS)
+            for (int wave = wave_front; wave < (iter + 1 < rows ? iter + 1 : rows);
+                 wave += STEPS)
                 for (int col = 0; col < columns; col++) {
-                    int var = update_flow(flow, flow_copy, particle_locations, wave, col, columns, 1);
+                    int var = update_flow(
+                        flow, flow_copy, particle_locations, wave, col, columns, 1
+                    );
                     if (var > max_var)
                         max_var = var;
                 }
         }
 
         MPI_Bcast(&max_var, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif // MODULE2
 
 #ifdef DEBUG
-        // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration
+        // 4.7. DEBUG: Print the current state of the simulation at the end of
+        // each iteration
         print_status(iter, rows, columns, flow, num_particles, particle_locations, max_var);
 #endif
     } // End iterations
@@ -511,7 +640,8 @@ int main(int argc, char *argv[]) {
             resultsC[ind] = accessMat(flow, res_row, ind * columns / 6);
     }
 
-    // MPI Version: Eliminate this conditional-end to start doing the work in parallel
+    // MPI Version: Eliminate this conditional-end to start doing the work in
+    // parallel
 
     /*
      *
@@ -530,9 +660,7 @@ int main(int argc, char *argv[]) {
         printf("Time: %lf\n", ttotal);
 
         /* 6.2. Results: Statistics */
-        printf("Result: %d, %d",
-               iter - 1,
-               max_var);
+        printf("Result: %d, %d", iter - 1, max_var);
         int i;
         for (i = 0; i < 6; i++)
             printf(", %d", resultsA[i]);

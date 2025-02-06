@@ -146,9 +146,10 @@ Pthread
 OpenMP
 - ```c #pragma omp parallel```
 - X export OMP_NUM_THREADS=4
-- omp_get_num_threads()
-- omp_get_thread_num()
-- ```c #pragma omp parallel num_threads(thread_count)```
+- export OMP_SCHEDULE="dynamic,25"
+- X omp_get_num_threads()
+- X omp_get_thread_num()
+- X ```c #pragma omp parallel num_threads(thread_count)```
 - number of threads isn't guaranteed
 - implicit barrier after block is completed
 - names
@@ -158,7 +159,7 @@ OpenMP
   - child: each thread started by a parent
 - ```c #pragma omp end parallel```
 - ```c #ifndef _OPENMP #else #endif```
-- ```c #pragma omp critical``` on critical section
+- X ```c #pragma omp critical``` on critical section
   - it can have a name ```cpp critical(name)``` : different names can be executed at the same time
 - ```c #pragma omp atomic``` only for 1 instruction, iff parallelizable
 - scope: set of threads that can access the variable
@@ -166,6 +167,7 @@ OpenMP
   - private: accessed by a single thread (default for variables in scope)
 - reduction operator: binary operator
 - reduction: computation that repeatedly applies the same reduction operator to a sequence of operands in order to get a single result
+- vectorized instructions
 - ```c #pragma omp parallel for reduction(<operator>: <variable list>)```
 - ```c default(none)``` for scope
 - ```c shared()```
@@ -256,6 +258,18 @@ CUDA
   - $32 times 32$
     - 1024 threads per block
     - more than the 512 allowed
+
+Dev 0
+  warpSize 32
+  maxGridSize 2147483647
+  maxBlocksPerMultiProcessor 32
+  maxThreadsPerBlock 1024
+  maxThreadsDim 1024
+  maxThreadsPerMultiProcessor 2048
+  sharedMemPerBlock 49152
+  regsPerMultiprocessor 65536
+  regsPerBlock 65536
+
 - cudaMalloc()
 - cudaFree()
 - cudaMemcpy()
@@ -459,4 +473,4 @@ Other
 // PMC7
 // PMC8 datatypes
 
-
+== Abstraction the enemy of performance

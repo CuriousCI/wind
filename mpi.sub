@@ -1,0 +1,17 @@
+universe = vanilla
+
+# Where should the output/error be saved
+log = logs/omp_job.log
+output = logs/omp_job.out
+error = logs/omp_job.err
+
+# Request GPU resources
+# request_gpus = 0
+request_cpus = 32
+request_nodes = 4
+
+# Specify any environment setup if needed
+getenv = True
+
+queue
+

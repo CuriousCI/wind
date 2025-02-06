@@ -109,10 +109,12 @@ wind_cuda
 target
 arch.c
 wind_omp
-wind_pthread_gdb
-wind_seq_gdb
+wind_pthread_debug
+wind_seq_debug
 perf
-wind_omp_gdb
+wind_omp_debug
+wind_omp_2
+wind_omp_2_debug
 
 frontend-hpc-di-UDP4-1194
 cluster.sh
