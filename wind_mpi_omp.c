@@ -101,6 +101,46 @@ void update_flow(int *flow, int *flow_copy, int row, int col, int columns) {
     }
 }
 
+// int update_flow(
+//     int *flow,
+//     int *flow_copy,
+//     int *particle_locations,
+//     int row,
+//     int col,
+//     int columns,
+//     int skip_particles
+// ) {
+//     // Skip update in particle positions
+//     if (skip_particles && accessMat(particle_locations, row, col) != 0)
+//         return 0;
+//
+//     // Update if border left
+//     if (col == 0) {
+//         accessMat(flow, row, col)
+//             = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+//                + accessMat(flow_copy, row - 1, col + 1))
+//               / 4;
+//     }
+//     // Update if border right
+//     if (col == columns - 1) {
+//         accessMat(flow, row, col)
+//             = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+//                + accessMat(flow_copy, row - 1, col - 1))
+//               / 4;
+//     }
+//     // Update in central part
+//     if (col > 0 && col < columns - 1) {
+//         accessMat(flow, row, col)
+//             = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
+//                + accessMat(flow_copy, row - 1, col - 1)
+//                + accessMat(flow_copy, row - 1, col + 1))
+//               / 5;
+//     }
+//
+//     // Return flow variation at this position
+//     return abs(accessMat(flow_copy, row, col) - accessMat(flow, row, col));
+// }
+
 /*
  * Function: Move particle
  * 	This function can be changed and/or optimized by the students
@@ -118,6 +158,8 @@ void move_particle(
     // Compute movement for each step
     int row = particles_m_pos[particle].row;
     int col = particles_m_pos[particle].col;
+    int x = col;
+    int y = row;
 
     for (int step = 0; step < STEPS; step++) {
         // Highly simplified phisical model
@@ -155,6 +197,46 @@ void move_particle(
     particles_m_pos[particle].row = row;
     particles_m_pos[particle].col = col;
 }
+// void move_particle(int *flow, particle_t *particles, int particle, int rows, int columns) {
+//     // Compute movement for each step
+//     int step;
+//     for (step = 0; step < STEPS; step++) {
+//         // Highly simplified phisical model
+//         int row = particles[particle].pos_row / PRECISION;
+//         int col = particles[particle].pos_col / PRECISION;
+//         int pressure = accessMat(flow, row - 1, col);
+//         int left, right;
+//         if (col == 0)
+//             left = 0;
+//         else
+//             left = pressure - accessMat(flow, row - 1, col - 1);
+//         if (col == columns - 1)
+//             right = 0;
+//         else
+//             right = pressure - accessMat(flow, row - 1, col + 1);
+//
+//         int flow_row = (int)((float)pressure / particles[particle].mass * PRECISION);
+//         int flow_col = (int)((float)(right - left) / particles[particle].mass * PRECISION);
+//
+//         // Speed change
+//         particles[particle].speed_row = (particles[particle].speed_row + flow_row) / 2;
+//         particles[particle].speed_col = (particles[particle].speed_col + flow_col) / 2;
+//
+//         // Movement
+//         particles[particle].pos_row
+//             = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
+//         particles[particle].pos_col
+//             = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
+//
+//         // Control limits
+//         if (particles[particle].pos_row >= PRECISION * rows)
+//             particles[particle].pos_row = PRECISION * rows - 1;
+//         if (particles[particle].pos_col < 0)
+//             particles[particle].pos_col = 0;
+//         if (particles[particle].pos_col >= PRECISION * columns)
+//             particles[particle].pos_col = PRECISION * columns - 1;
+//     }
+// }
 
 #ifdef DEBUG
 /*
@@ -462,33 +544,6 @@ int main(int argc, char *argv[]) {
     for (int rank = 0; rank < comm_size; rank++)
         particles_m_finals[rank] = particles_m_displs[rank] + particles_m_counts[rank];
 
-    int *blocks_counts = calloc(comm_size, sizeof(int)),
-        *blocks_displs = calloc(comm_size, sizeof(int));
-
-    distribute((rows - 1) / STEPS + ((rows - 1) % STEPS == 0 ? 0 : 1), comm_size, blocks_counts, blocks_displs);
-
-    int *flow_counts = calloc(comm_size, sizeof(int)),
-        *flow_displs = calloc(comm_size, sizeof(int));
-
-    {
-        int cells = 0;
-        for (int rank = 0; rank < comm_size; rank++) {
-            flow_displs[rank] = blocks_displs[rank] * STEPS * columns;
-            int count = blocks_counts[rank] * STEPS * columns;
-            if (cells + count < rows * columns)
-                flow_counts[rank] = count;
-            else
-                flow_counts[rank] = (rows * columns) - flow_displs[rank];
-            cells += flow_counts[rank];
-        }
-    }
-
-    int *flow_rank = malloc(rows * columns * sizeof(int));
-
-    for (int rank = 0; rank < comm_size; rank++)
-        for (int cell = flow_displs[rank]; cell < flow_displs[rank] + flow_counts[rank]; cell++)
-            flow_rank[cell] = rank;
-
     vec2_t *particles_pos = malloc(num_particles * sizeof(vec2_t));
     int *particles_res = malloc(num_particles * sizeof(int)),
         *particles_back = malloc(num_particles * sizeof(int));
@@ -521,7 +576,9 @@ int main(int argc, char *argv[]) {
     }
 
     for (int particle = 0; particle < num_particles; particle++)
-        accessMat(particle_locations, particles_pos[particle].row, particles_pos[particle].col)++;
+        accessMat(
+            particle_locations, particles_pos[particle].row, particles_pos[particle].col
+        )++;
 
     /* 4. Simulation */
     for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
@@ -535,28 +592,28 @@ int main(int argc, char *argv[]) {
                     accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
                 }
             // End inlet update
+
 #ifdef MODULE2
 #ifdef MODULE3
             // 4.2. Particles movement each STEPS iterations
+            // Clean particle positions
+
             if (rank == 0)
                 if (num_particles_m > 0)
+#pragma omp parallel for
                     for (int particle = 0; particle < num_particles_m; particle++)
-                        accessMat(particle_locations, particles_m_pos[particle].row, particles_m_pos[particle].col)--;
+#pragma omp atomic
+                        accessMat(
+                            particle_locations,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col
+                        )--;
 
-            // TODO: divide by type
-            if (num_particles > 0)
-                MPI_Allgatherv(
-                    flow + flow_displs[rank],
-                    flow_counts[rank],
-                    MPI_INT,
-                    flow,
-                    flow_counts,
-                    flow_displs,
-                    MPI_INT,
-                    MPI_COMM_WORLD
-                );
+            // TODO: copy just the necessary space, precalc minrow etc... with a reduction maybe?
+            MPI_Bcast(flow, rows * columns, MPI_INT, 0, MPI_COMM_WORLD);
 
             if (num_particles_m > 0)
+#pragma omp parallel for
                 for (int particle = particles_m_displs[rank]; particle < particles_m_finals[rank]; particle++)
                     move_particle(
                         flow,
@@ -569,31 +626,33 @@ int main(int argc, char *argv[]) {
                         particles_m_mass
                     );
 
-            if (num_particles_m > 0)
-                MPI_Gatherv(
-                    rank == 0 ? MPI_IN_PLACE : particles_m_pos + particles_m_displs[rank],
-                    particles_m_counts[rank],
-                    MPI_VEC2_T,
-                    particles_m_pos,
-                    particles_m_counts,
-                    particles_m_displs,
-                    MPI_VEC2_T,
-                    0,
-                    MPI_COMM_WORLD
-                );
+            MPI_Gatherv(
+                rank == 0 ? MPI_IN_PLACE : particles_m_pos + particles_m_displs[rank],
+                particles_m_counts[rank],
+                MPI_VEC2_T,
+                particles_m_pos,
+                particles_m_counts,
+                particles_m_displs,
+                MPI_VEC2_T,
+                0,
+                MPI_COMM_WORLD
+            );
 
             if (rank == 0)
                 if (num_particles_m > 0)
+#pragma omp parallel for
                     for (int particle = 0; particle < num_particles_m; particle++)
-                        accessMat(particle_locations, particles_m_pos[particle].row, particles_m_pos[particle].col)++;
-
-            if (num_particles_m > 0)
-                MPI_Bcast(particle_locations, rows * columns, MPI_INT, 0, MPI_COMM_WORLD);
+#pragma omp atomic
+                        accessMat(
+                            particle_locations,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col
+                        )++;
 #endif // MODULE3
 
-            // if (accessMat(flow_rank, particles_pos[particle].row, particles_pos[particle].col) == rank)
             if (rank == 0)
                 if (num_particles > 0)
+#pragma omp parallel for
                     for (int particle = 0; particle < num_particles; particle++)
                         update_flow(
                             flow,
@@ -605,6 +664,7 @@ int main(int argc, char *argv[]) {
 
             if (rank == 0)
                 if (num_particles > 0)
+#pragma omp parallel for
                     for (int particle = 0; particle < num_particles; particle++) {
                         int row = particles_pos[particle].row;
                         int col = particles_pos[particle].col;
@@ -634,9 +694,6 @@ int main(int argc, char *argv[]) {
                             accessMat(flow, row - 1, col) += back / 4;
                     }
 
-            if (num_particles > 0)
-                MPI_Bcast(flow, rows * columns, MPI_INT, 0, MPI_COMM_WORLD);
-
             max_var = 0;
 #endif // MODULE2
         }
@@ -645,26 +702,56 @@ int main(int argc, char *argv[]) {
         if (wave_front == 0) {
             wave_front = STEPS;
 
-            if (num_particles > 0)
-                MPI_Gatherv(
-                    flow + flow_displs[rank],
-                    flow_counts[rank],
-                    MPI_INT,
-                    flow_copy,
-                    flow_counts,
-                    flow_displs,
-                    MPI_INT,
-                    0,
-                    MPI_COMM_WORLD
-                );
+            // if (rank == 0)
+            //     if (num_particles > 0)
+            //         memcpy(flow_copy, flow, rows * columns * sizeof(int));
+
+            if (rank == 0)
+                if (num_particles_f > 0) {
+#pragma omp parallel for
+                    for (int particle = 0; particle < num_particles_f; particle++) {
+                        int row = particles_pos[particle].row;
+                        int col = particles_pos[particle].col;
+
+                        accessMat(flow_copy, row, col) = accessMat(flow, row, col);
+                        accessMat(flow_copy, row - 1, col) = accessMat(flow, row - 1, col);
+                        if (col > 0)
+                            accessMat(flow_copy, row - 1, col - 1)
+                                = accessMat(flow, row - 1, col - 1);
+                        if (col < columns - 1)
+                            accessMat(flow_copy, row - 1, col + 1)
+                                = accessMat(flow, row - 1, col + 1);
+                    }
+                }
+
+            if (rank == 0)
+                if (num_particles_m > 0) {
+                    int min_row = INT_MAX;
+                    int max_row = 0;
+
+#pragma omp parallel for reduction(min : min_row) reduction(max : max_row)
+                    for (int particle = 0; particle < num_particles_m; particle++) {
+                        if (particles_m_pos[particle].row < min_row)
+                            min_row = particles_m_pos[particle].row;
+                        if (particles_m_pos[particle].row > max_row)
+                            max_row = particles_m_pos[particle].row;
+                    }
+
+                    if (min_row > 1)
+                        min_row--;
+                    max_row += (rows - max_row < 3 ? rows - max_row : 3);
+                    memcpy(
+                        flow_copy + min_row * columns,
+                        flow + min_row * columns,
+                        (max_row - min_row) * columns * sizeof(int)
+                    );
+                }
         }
 
         int last_wave = iter + 1 < rows ? iter + 1 : rows;
-
-        // int block_last_row = (blocks_displs[rank] + blocks_counts[rank]) * 8 + 1;
-        for (int block = blocks_displs[rank]; block < blocks_displs[rank] + blocks_counts[rank]; block++) {
-            int wave = block * STEPS + wave_front;
-            if (wave < last_wave) {
+        if (rank == 0)
+#pragma omp parallel for reduction(max : max_var)
+            for (int wave = wave_front; wave < last_wave; wave += STEPS) {
                 for (int col = 0; col < columns; col++)
                     if (accessMat(particle_locations, wave, col) == 0) {
                         int prev = accessMat(flow, wave, col);
@@ -674,61 +761,10 @@ int main(int argc, char *argv[]) {
                             max_var = var;
                     }
             }
-        }
 
-        if (wave_front == STEPS) {
-            if (rank < comm_size - 1) {
-                MPI_Request request;
-                int rank_last_wave = (blocks_displs[rank] + blocks_counts[rank] - 1) * STEPS + wave_front;
-
-                MPI_Isend(
-                    flow + rank_last_wave * columns,
-                    columns,
-                    MPI_INT,
-                    rank + 1,
-                    0,
-                    MPI_COMM_WORLD,
-                    &request
-                );
-            }
-
-            if (rank > 0) {
-                int prev_rank_last_wave = (blocks_displs[rank - 1] + blocks_counts[rank - 1] - 1) * STEPS + wave_front;
-
-                MPI_Recv(
-                    flow + prev_rank_last_wave * columns,
-                    columns,
-                    MPI_INT,
-                    rank - 1,
-                    0,
-                    MPI_COMM_WORLD,
-                    NULL
-                );
-            }
-        }
-
-        MPI_Allreduce(
-            MPI_IN_PLACE,
-            &max_var,
-            1,
-            MPI_INT,
-            MPI_MAX,
-            MPI_COMM_WORLD
-        );
-
+        // MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Bcast(&max_var, 1, MPI_INT, 0, MPI_COMM_WORLD);
 #ifdef DEBUG
-        MPI_Gatherv(
-            flow + flow_displs[rank],
-            flow_counts[rank],
-            MPI_INT,
-            flow,
-            flow_counts,
-            flow_displs,
-            MPI_INT,
-            0,
-            MPI_COMM_WORLD
-        );
-
         // 4.7. DEBUG: Print the current state of the simulation at the end of each iteration
         if (rank == 0) {
             fflush(stdout);
@@ -739,31 +775,22 @@ int main(int argc, char *argv[]) {
 
     } // End iterations
 
-    MPI_Gatherv(
-        flow + flow_displs[rank],
-        flow_counts[rank],
-        MPI_INT,
-        flow,
-        flow_counts,
-        flow_displs,
-        MPI_INT,
-        0,
-        MPI_COMM_WORLD
-    );
+    // MPI_Bcast(flow, rows * columns, MPI_INT, 0, MPI_COMM_WORLD);
 
     // MPI: Fill result arrays used for later output
-    if (rank == 0) {
-        int ind;
-        for (ind = 0; ind < 6; ind++)
-            resultsA[ind] = accessMat(flow, STEPS - 1, ind * columns / 6);
+    int ind;
+    for (ind = 0; ind < 6; ind++)
+        resultsA[ind] = accessMat(flow, STEPS - 1, ind * columns / 6);
 
-        int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
-        for (ind = 0; ind < 6; ind++)
-            resultsB[ind] = accessMat(flow, res_row / 2, ind * columns / 6);
+    int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
+    for (ind = 0; ind < 6; ind++)
+        resultsB[ind] = accessMat(flow, res_row / 2, ind * columns / 6);
 
-        for (ind = 0; ind < 6; ind++)
-            resultsC[ind] = accessMat(flow, res_row, ind * columns / 6);
-    }
+    for (ind = 0; ind < 6; ind++)
+        resultsC[ind] = accessMat(flow, res_row, ind * columns / 6);
+
+    // MPI Version: Eliminate this conditional-end to start doing the work in parallel
+    /*}*/
 
     /*
      *
@@ -803,158 +830,3 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     return 0;
 }
-
-// int update_flow(
-//     int *flow,
-//     int *flow_copy,
-//     int *particle_locations,
-//     int row,
-//     int col,
-//     int columns,
-//     int skip_particles
-// ) {
-//     // Skip update in particle positions
-//     if (skip_particles && accessMat(particle_locations, row, col) != 0)
-//         return 0;
-//
-//     // Update if border left
-//     if (col == 0) {
-//         accessMat(flow, row, col)
-//             = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
-//                + accessMat(flow_copy, row - 1, col + 1))
-//               / 4;
-//     }
-//     // Update if border right
-//     if (col == columns - 1) {
-//         accessMat(flow, row, col)
-//             = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
-//                + accessMat(flow_copy, row - 1, col - 1))
-//               / 4;
-//     }
-//     // Update in central part
-//     if (col > 0 && col < columns - 1) {
-//         accessMat(flow, row, col)
-//             = (accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2
-//                + accessMat(flow_copy, row - 1, col - 1)
-//                + accessMat(flow_copy, row - 1, col + 1))
-//               / 5;
-//     }
-//
-//     // Return flow variation at this position
-//     return abs(accessMat(flow_copy, row, col) - accessMat(flow, row, col));
-// }
-// MPI_Barrier(MPI_COMM_WORLD);
-
-// void move_particle(int *flow, particle_t *particles, int particle, int rows, int columns) {
-//     // Compute movement for each step
-//     int step;
-//     for (step = 0; step < STEPS; step++) {
-//         // Highly simplified phisical model
-//         int row = particles[particle].pos_row / PRECISION;
-//         int col = particles[particle].pos_col / PRECISION;
-//         int pressure = accessMat(flow, row - 1, col);
-//         int left, right;
-//         if (col == 0)
-//             left = 0;
-//         else
-//             left = pressure - accessMat(flow, row - 1, col - 1);
-//         if (col == columns - 1)
-//             right = 0;
-//         else
-//             right = pressure - accessMat(flow, row - 1, col + 1);
-//
-//         int flow_row = (int)((float)pressure / particles[particle].mass * PRECISION);
-//         int flow_col = (int)((float)(right - left) / particles[particle].mass * PRECISION);
-//
-//         // Speed change
-//         particles[particle].speed_row = (particles[particle].speed_row + flow_row) / 2;
-//         particles[particle].speed_col = (particles[particle].speed_col + flow_col) / 2;
-//
-//         // Movement
-//         particles[particle].pos_row
-//             = particles[particle].pos_row + particles[particle].speed_row / STEPS / 2;
-//         particles[particle].pos_col
-//             = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
-//
-//         // Control limits
-//         if (particles[particle].pos_row >= PRECISION * rows)
-//             particles[particle].pos_row = PRECISION * rows - 1;
-//         if (particles[particle].pos_col < 0)
-//             particles[particle].pos_col = 0;
-//         if (particles[particle].pos_col >= PRECISION * columns)
-//             particles[particle].pos_col = PRECISION * columns - 1;
-//     }
-// }
-
-// if (rank == 0)
-//     if (num_particles_f > 0) {
-//         for (int particle = 0; particle < num_particles_f; particle++) {
-//             int row = particles_pos[particle].row;
-//             int col = particles_pos[particle].col;
-//
-//             accessMat(flow_copy, row, col) = accessMat(flow, row, col);
-//             accessMat(flow_copy, row - 1, col) = accessMat(flow, row - 1, col);
-//             if (col > 0)
-//                 accessMat(flow_copy, row - 1, col - 1)
-//                     = accessMat(flow, row - 1, col - 1);
-//             if (col < columns - 1)
-//                 accessMat(flow_copy, row - 1, col + 1)
-//                     = accessMat(flow, row - 1, col + 1);
-//         }
-//     }
-//
-// if (rank == 0)
-//     if (num_particles_m > 0) {
-//         int min_row = INT_MAX;
-//
-//         for (int particle = 0; particle < num_particles_m; particle++)
-//             if (particles_m_pos[particle].row < min_row)
-//                 min_row = particles_m_pos[particle].row;
-//
-//         if (min_row > 1)
-//             min_row--;
-//         memcpy(
-//             flow_copy + min_row * columns,
-//             flow + min_row * columns,
-//             (rows - min_row) * columns * sizeof(int)
-//         );
-//     }
-
-// if (rank == 0)
-//     for (int wave = wave_front; wave < last_wave; wave += STEPS) {
-//         for (int col = 0; col < columns; col++)
-//             if (accessMat(particle_locations, wave, col) == 0) {
-//                 int prev = accessMat(flow, wave, col);
-//                 update_flow(flow, flow, wave, col, columns);
-//                 int var = abs(prev - accessMat(flow, wave, col));
-//                 if (var > max_var)
-//                     max_var = var;
-//             }
-//     }
-
-// if (rank == 0)
-//     if (num_particles_m > 0)
-//         for (int particle = 0; particle < num_particles_m; particle++)
-//             move_particle(
-//                 flow,
-//                 particles_m,
-//                 particle,
-//                 precision_rows,
-//                 precision_columns,
-//                 columns,
-//                 particles_m_pos,
-//                 particles_m_mass
-//             );
-// MPI_Bcast(flow, rows * columns, MPI_INT, 0, MPI_COMM_WORLD);
-
-// MPI_Scatterv(
-//     flow,
-//     flow_counts,
-//     flow_displs,
-//     MPI_INT,
-//     flow + flow_displs[rank],
-//     flow_counts[rank],
-//     MPI_INT,
-//     0,
-//     MPI_COMM_WORLD
-// );

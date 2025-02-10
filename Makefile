@@ -13,13 +13,14 @@ CC=gcc
 OMPFLAG=-fopenmp
 MPICC=mpicc
 CUDACC=nvcc
+CUDAARCH=-arch=sm_61
 
 # Flags for optimization and libs
 FLAGS=-O3 -Wall
 LIBS=-lm
 
 # Targets to build
-OBJS=wind_seq wind_omp wind_omp_2 wind_cuda wind_cuda_2 wind_pthread wind_pthread_2
+OBJS=wind_seq wind_omp wind_omp_2 wind_cuda wind_cuda_2 wind_pthread wind_mpi_2
 
 # Rules. By default show help
 help:
@@ -52,12 +53,18 @@ wind_omp_2: wind_omp_2.c
 wind_mpi: wind_mpi.c
 	$(MPICC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
 
+wind_mpi_2: wind_mpi_2.c
+	$(MPICC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
+
+wind_mpi_omp: wind_mpi_omp.c
+	$(MPICC) $(FLAGS) $(DEBUG) -fopenmp $< $(LIBS) -o $@
+
 wind_cuda: wind_cuda.cu
-	$(CUDACC) -O3 $(DEBUG) $< $(LIBS) -o $@
+	$(CUDACC) $(CUDAARCH) -O3 $(DEBUG) $< $(LIBS) -o $@
 
 # TODO: -Xptxax
 wind_cuda_2: wind_cuda_2.cu
-	$(CUDACC) -O3 $(DEBUG) $< $(LIBS) -o $@
+	$(CUDACC) $(CUDAARCH) -O3 $(DEBUG) $< $(LIBS) -o $@
 
 wind_pthread: wind_pthread.c
 	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -lpthread -o $@
@@ -66,8 +73,7 @@ wind_pthread_2: wind_pthread_2.c
 	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -lpthread -o $@
 
 wind_omp_cuda: wind_omp_cuda.cu
-	$(CUDACC) -O3 $(DEBUG) -Xcompiler -fopenmp $< $(LIBS) -o $@
-	# $(CUDACC) --debug $(DEBUG) -Xcompiler -fopenmp -ggdb3 $< $(LIBS) -o $@
+	$(CUDACC) $(CUDAARCH) -O3 $(DEBUG) -Xcompiler -fopenmp $< $(LIBS) -o $@
 	
 
 # DEBUGGING
@@ -85,7 +91,7 @@ wind_omp_2_debug: wind_omp_2.c
 	$(CC) -Wall -pedantic -ggdb3 $(OMPFLAG) $< $(LIBS) -o $@
 
 wind_cuda_2_debug: wind_cuda_2.cu
-	$(CUDACC) --debug --device-debug $< $(LIBS) -o $@
+	$(CUDACC) $(CUDAARCH) --debug --device-debug $< $(LIBS) -o $@
 	
 wind_pthread_debug: wind_pthread.c
 	$(CC) -Wall -pedantic -ggdb3 -lpthread $< $(LIBS) -o $@
@@ -96,7 +102,7 @@ wind_pthread_2_debug: wind_pthread_2.c
 
 # Remove the target files
 clean:
-	rm -rf $(OBJS) wind_pthread wind_pthread_2 wind_seq_debug wind_omp_debug wind_pthread_debug wind_pthread_2_debug wind_mpi_debug *.txt wind_omp_2 wind_omp_2_debug wind_cuda_2 wind_cuda_2_debug wind_mpi wind_omp_cuda
+	rm -rf $(OBJS) wind_pthread wind_pthread_2 wind_seq_debug wind_omp_debug wind_pthread_debug wind_pthread_2_debug wind_mpi_debug *.txt wind_omp_2 wind_omp_2_debug wind_cuda_2 wind_cuda_2_debug wind_mpi wind_omp_cuda wind_mpi_2
 
 # Compile in debug mode
 debug:

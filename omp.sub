@@ -1,15 +1,10 @@
 universe = vanilla
 
-# Where should the output/error be saved
-log = logs/omp_job.log
-output = logs/omp_job.out
-error = logs/omp_job.err
+output = logs/omp_.out
+error = logs/omp_.err
+log = logs/omp_.log
 
-# Request GPU resources
-# request_gpus = 0
 request_cpus = 32
-
-# Specify any environment setup if needed
 getenv = True
 
 queue

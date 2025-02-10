@@ -507,8 +507,6 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            MPI_Bcast(flow, columns, MPI_INT, 0, MPI_COMM_WORLD);
-
 #ifdef MODULE2
 #ifdef MODULE3
 
@@ -520,6 +518,8 @@ int main(int argc, char *argv[]) {
                         particles_pos[particle].col
                     )--;
             }
+
+            MPI_Bcast(flow, columns, MPI_INT, 0, MPI_COMM_WORLD);
 
             if (rank == 0) {
                 for (int particle = num_particles_f; particle < num_particles; particle++) {

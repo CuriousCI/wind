@@ -1,17 +1,15 @@
-universe = vanilla
+universe = parallel
+executable = openmpiscript.sh
+arguments = wind_mpi_2 <args>
+should_transfer_files = YES
+transfer_input_files = wind_mpi_2
+when_to_transfer_output = on_exit_or_evict
+output = logs/mpi_.out.$(NODE)
+error = logs/mpi_.err.$(NODE)
+log = logs/mpi_.log
 
-# Where should the output/error be saved
-log = logs/omp_job.log
-output = logs/omp_job.out
-error = logs/omp_job.err
+machine_count = <number_of_nodes_you_need>
+request_cpus = 0
 
-# Request GPU resources
-# request_gpus = 0
-request_cpus = 32
-request_nodes = 4
-
-# Specify any environment setup if needed
 getenv = True
-
-queue
 

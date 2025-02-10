@@ -118,3 +118,5 @@ wind_omp_2_debug
 
 frontend-hpc-di-UDP4-1194
 cluster.sh
+docs/data.csv
+data/

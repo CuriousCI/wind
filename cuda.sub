@@ -1,0 +1,10 @@
+universe = vanilla
+
+log = logs/cuda.log
+output = logs/cuda.out
+error = logs/cuda.err
+
+request_gpus = 1
+getenv = True
+
+queue
