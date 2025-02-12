@@ -71,8 +71,9 @@ int update_flow(
     int skip_particles
 ) {
     // Skip update in particle positions
-    if (skip_particles && accessMat(particle_locations, row, col) != 0)
+    if (skip_particles && accessMat(particle_locations, row, col) != 0) {
         return 0;
+    }
 
     // Update if border left
     if (col == 0) {
@@ -114,14 +115,16 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
         int col = particles[particle].pos_col / PRECISION;
         int pressure = accessMat(flow, row - 1, col);
         int left, right;
-        if (col == 0)
+        if (col == 0) {
             left = 0;
-        else
+        } else {
             left = pressure - accessMat(flow, row - 1, col - 1);
-        if (col == columns - 1)
+        }
+        if (col == columns - 1) {
             right = 0;
-        else
+        } else {
             right = pressure - accessMat(flow, row - 1, col + 1);
+        }
 
         int flow_row = (int)((float)pressure / particles[particle].mass * PRECISION);
         int flow_col = (int)((float)(right - left) / particles[particle].mass * PRECISION);
@@ -137,12 +140,15 @@ void move_particle(int *flow, Particle *particles, int particle, int rows, int c
             = particles[particle].pos_col + particles[particle].speed_col / STEPS / 2;
 
         // Control limits
-        if (particles[particle].pos_row >= PRECISION * rows)
+        if (particles[particle].pos_row >= PRECISION * rows) {
             particles[particle].pos_row = PRECISION * rows - 1;
-        if (particles[particle].pos_col < 0)
+        }
+        if (particles[particle].pos_col < 0) {
             particles[particle].pos_col = 0;
-        if (particles[particle].pos_col >= PRECISION * columns)
+        }
+        if (particles[particle].pos_col >= PRECISION * columns) {
             particles[particle].pos_col = PRECISION * columns - 1;
+        }
     }
 }
 
@@ -169,38 +175,43 @@ void print_status(
     printf("Iteration: %d, max_var: %f\n", iteration, (float)max_var / PRECISION);
 
     printf("  +");
-    for (j = 0; j < columns; j++)
+    for (j = 0; j < columns; j++) {
         printf("---");
+    }
     printf("+\n");
     for (i = 0; i < rows; i++) {
-        if (i % STEPS == iteration % STEPS)
+        if (i % STEPS == iteration % STEPS) {
             printf("->|");
-        else
+        } else {
             printf("  |");
+        }
 
         for (j = 0; j < columns; j++) {
             char symbol;
-            if (accessMat(flow, i, j) >= 10 * PRECISION)
+            if (accessMat(flow, i, j) >= 10 * PRECISION) {
                 symbol = '*';
-            else if (accessMat(flow, i, j) >= 1 * PRECISION)
+            } else if (accessMat(flow, i, j) >= 1 * PRECISION) {
                 symbol = '0' + accessMat(flow, i, j) / PRECISION;
-            else if (accessMat(flow, i, j) >= 0.5 * PRECISION)
+            } else if (accessMat(flow, i, j) >= 0.5 * PRECISION) {
                 symbol = '+';
-            else if (accessMat(flow, i, j) > 0)
+            } else if (accessMat(flow, i, j) > 0) {
                 symbol = '.';
-            else
+            } else {
                 symbol = ' ';
+            }
 
-            if (accessMat(particle_locations, i, j) > 0)
+            if (accessMat(particle_locations, i, j) > 0) {
                 printf("[%c]", symbol);
-            else
+            } else {
                 printf(" %c ", symbol);
+            }
         }
         printf("|\n");
     }
     printf("  +");
-    for (j = 0; j < columns; j++)
+    for (j = 0; j < columns; j++) {
         printf("---");
+    }
     printf("+\n\n");
 }
 #endif
@@ -309,8 +320,9 @@ int main(int argc, char *argv[]) {
             );
             exit(EXIT_FAILURE);
         }
-    } else
+    } else {
         particles = NULL;
+    }
 
     /* 1.6.1. Read fixed particles */
     int particle = 0;
@@ -447,16 +459,19 @@ int main(int argc, char *argv[]) {
         // 4.2. Particles movement each STEPS iterations
         if (iter % STEPS == 1) {
             // Clean particle positions
-            for (i = 0; i <= iter && i < rows; i++)
-                for (j = 0; j < columns; j++)
+            for (i = 0; i <= iter && i < rows; i++) {
+                for (j = 0; j < columns; j++) {
                     accessMat(particle_locations, i, j) = 0;
+                }
+            }
 
             int particle;
             for (particle = 0; particle < num_particles; particle++) {
                 int mass = particles[particle].mass;
                 // Fixed particles
-                if (mass == 0)
+                if (mass == 0) {
                     continue;
+                }
                 // Movable particles
                 move_particle(flow, particles, particle, rows, columns);
             }
@@ -493,36 +508,43 @@ int main(int argc, char *argv[]) {
 
                 accessMat(flow, row - 1, col) += back / 2;
 
-                if (col > 0)
+                if (col > 0) {
                     accessMat(flow, row - 1, col - 1) += back / 4;
-                else
+                } else {
                     accessMat(flow, row - 1, col) += back / 4;
-                if (col < columns - 1)
+                }
+                if (col < columns - 1) {
                     accessMat(flow, row - 1, col + 1) += back / 4;
-                else
+                } else {
                     accessMat(flow, row - 1, col) += back / 4;
+                }
             }
         } // End effects
 #endif // MODULE2
 
         // 4.4. Copy data in the ancillary structure
-        for (i = 0; i < iter && i < rows; i++)
-            for (j = 0; j < columns; j++)
+        for (i = 0; i < iter && i < rows; i++) {
+            for (j = 0; j < columns; j++) {
                 accessMat(flow_copy, i, j) = accessMat(flow, i, j);
+            }
+        }
 
         // 4.5. Propagation stage
         // 4.5.1. Initialize data to detect maximum variability
-        if (iter % STEPS == 1)
+        if (iter % STEPS == 1) {
             max_var = 0;
+        }
 
         // 4.5.2. Execute propagation on the wave fronts
         int wave_front = iter % STEPS;
-        if (wave_front == 0)
+        if (wave_front == 0) {
             wave_front = STEPS;
+        }
         int wave;
         for (wave = wave_front; wave < rows; wave += STEPS) {
-            if (wave > iter)
+            if (wave > iter) {
                 continue;
+            }
             int col;
             for (col = 0; col < columns; col++) {
                 int var
@@ -558,12 +580,15 @@ int main(int argc, char *argv[]) {
     printf("Result: %d, %d", iter - 1, max_var);
     int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
     int ind;
-    for (ind = 0; ind < 6; ind++)
+    for (ind = 0; ind < 6; ind++) {
         printf(", %d", accessMat(flow, STEPS - 1, ind * columns / 6));
-    for (ind = 0; ind < 6; ind++)
+    }
+    for (ind = 0; ind < 6; ind++) {
         printf(", %d", accessMat(flow, res_row / 2, ind * columns / 6));
-    for (ind = 0; ind < 6; ind++)
+    }
+    for (ind = 0; ind < 6; ind++) {
         printf(", %d", accessMat(flow, res_row, ind * columns / 6));
+    }
     printf("\n");
 
     /* 7. Free resources */
@@ -575,4 +600,3 @@ int main(int argc, char *argv[]) {
     /* 8. End */
     return 0;
 }
-

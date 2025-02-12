@@ -35,7 +35,7 @@
   ]
 )
 
-#page(outline(indent: auto))
+// #page(outline(indent: auto))
 
 #set page(numbering: "1")
 
@@ -55,6 +55,8 @@ The sequential code has two main parallelization targets: the *update of the air
 
 // - TODO: Intel Vtune, performance with particles, and performance without particles
 // TODO: cost of moving particles
+  // TODO: parallel sorting algorithm with qsort
+  // TODO: https://people.cs.rutgers.edu/~venugopa/parallel_summer2012/bitonic_openmp.html
 
 The next few pages are dedicated to analyzing the tricks used to optimize memory usage. These optimizations not only lead to a better scale-up realtive to the sequential code, but also better efficiency when increasing the number of processes / threads.
 
@@ -114,19 +116,6 @@ This way the attributes are separated in different arrays. It's interesting to n
 That's because the position in ```c particles_m``` is multiplied by a certain ```c PRECISION```, and the actual position inside the matrix is the one in ```c particles_pos```, having two advantages:
 - the actual position inside the matrix can be pre-calculated for the fixed particles
 - the data that needs to be transferred for moving particles is just a ```c vec2_t```, half the size of a ```c particle_m_t``` and 28% of a ```c particle_t``` ($"64B" / "232B"$).
-
-// ```c
-// typedef struct {
-//     unsigned char extra;      // Extra field for student's usage
-//     int pos_row, pos_col;     // Position in the grid
-//     int mass;                 // Particle mass
-//     int resistance;           // Resistance to air flow
-//     int speed_row, speed_col; // Movement direction and speed
-//     int old_flow;             // To annotate the flow before applying effects
-// } particle_t;
-// ```
-
-// #pagebreak()
 
 === Bringing order in a world of chaos <order-chaos>
 
@@ -225,7 +214,7 @@ L1-dcache-load-misses       2.85%  of all L1-dcache accesses
 
 == OpenMP
 
-=== Noteworthy details
+=== Implementation 
 
 Many of the for-loops that work on particles are separated. 
 #figure(caption: `wind_omp.c`)[
@@ -302,12 +291,12 @@ This part is problematic because multiple particles can overlap, so changes to t
 - I tried using ```c omp_lock_t``` in two different ways: 
   - the first attempt was to create a matrix of locks, to lock each required cell individually, but the overhead to use locks was too big
   - the second attempt was to lock entire rows (to reduce the overhead for the locks by working with bigger sections), but this also proved to be inefficient
-- ```c #pragma omp reduction()``` didn't work either, because reducing big arrays in OpenMP can break *very easily* the stack limit; even when setting the stack limit to unlimited the performance wasn't as promising
+- ```c #pragma omp reduction()``` didn't work either, because reducing big arrays in OpenMP can break *very easily* the stack limit; even when setting the stack limit to unlimited the performance wasn't good 
 - I tried doing something similar to a reduction manually by using ```c #pragma omp threadprivate``` and allocating each thread's section on the heap, but this also required some kind of sequential code at some point
 
 There's nothing that can be done for *moving particles*, and it's not worth to try to parallelize this part, as most of the execution time is spent elsewhere (see @intel-vtune-move-particle).
 
-#figure(caption: [Vtune analysis: most of the time is spent in ```c move_particle()```])[
+#figure(caption: [Intel Vtune analysis])[
   #image("./intel-vtune-cpu-time.png", width: 80%)
 ]  <intel-vtune-move-particle>
 
@@ -317,8 +306,9 @@ Even so, this part can be parallelized _very efficiently_ for *fixed particles*.
 #pragma omp parallel
 {
   int thread_num = omp_get_thread_num();
-  for (int p = f_displs[thread_num]; 
-      p < f_displs[thread_num] + f_counts[thread_num]; p++) {
+  for (int p = f_displs[thread_num]; t1 
+      p < f_displs[thread_num] t1 + f_counts[thread_num]; t2 
+      p++) {
       int row = ..., col = ..., back = ...;
       accessMat(flow, row, col) -= back;
       accessMat(flow, row - 1, col) += (back / 2);
@@ -327,7 +317,7 @@ Even so, this part can be parallelized _very efficiently_ for *fixed particles*.
 }
 ```
 
-The idea is to basically distribute all the fixed particles among the threads in such a way that all particles that have the same position are assigned to the same thread, so no race conditions can happen. This is realtively easy to do: the fixed particles are already sorted, so it's enough to distribute the particles evenly among the threads, and check the particles on the borders.
+The idea is to distribute all the fixed particles among the threads by pre-calculating the displacements #reft(1) and the counts #reft(2) in such a way that all particles that have the same position are assigned to the same thread, so no race conditions can happen. The fixed particles are already sorted, so it's enough to distribute the particles evenly among the threads, and check the particles on the borders.
 
 
 
@@ -384,69 +374,35 @@ The idea is to basically distribute all the fixed particles among the threads in
 
 == CUDA
 
-=== Noteworthy implementation details
+=== Implementation 
+
+```c
+__global__ void move_particles_kernel()
+__global__ void update_particles_flow_kernel()
+__global__ void update_back_kernel()
+__global__ void propagate_waves_kernel()
+```
+
+// __global__ void propagate_waves_kernel()
+```c
+__shared__ int temp[32 + 2];
+
+int w = wave_front + blockIdx.y * 8, col = ...;
+if (/* not valid ... */) return;
+
+int s_idx = threadIdx.x + 1;
+
+temp[s_idx] = accessMat(d_flow, wave - 1, col);
+if (col > 0) 
+    temp[s_idx - 1] = accessMat(d_flow, wave - 1, col - 1);
+if (col < columns - 1) 
+    temp[s_idx + 1] = accessMat(d_flow, wave - 1, col + 1);
+
+__syncthreads();
+```
+
 
 === Speed-up & efficiency
-
-// ```c
-// __global__ void move_particles_kernel(/* ... */) {
-//     int particle = threadIdx.x + blockIdx.x * blockDim.x;
-//
-//     int row = d_particles_m_pos[particle].row;
-//     int col = d_particles_m_pos[particle].col;
-//
-//     atomicSub(&accessMat(d_particle_locations, row, col), 1);
-//
-//     for (int step = 0; step < STEPS; step++) {
-//         /* ... */
-//     }
-//
-//     d_particles_m_pos[particle].row = row;
-//     d_particles_m_pos[particle].col = col;
-//
-//     atomicAdd(&accessMat(d_particle_locations, row, col), 1);
-// }
-// ```
-
-// TODO: does shared memory help?
-// TODO: does shared memory help for flow copy?
-
-// ```c
-// __global__ void propagate_waves_kernel(/* ... */) {
-//     __shared__ int temp[32 + 2];
-//
-//     int wave = wave_front + blockIdx.y * 8;
-//     int col = blockIdx.x * blockDim.x + threadIdx.x;
-//
-//     /* ... */
-//
-//     int s_idx = threadIdx.x + 1;
-//
-//     temp[s_idx] = accessMat(d_flow, wave - 1, col);
-//     if (col > 0)
-//         temp[s_idx - 1] = accessMat(d_flow, wave - 1, col - 1);
-//     if (col < columns - 1)
-//         temp[s_idx + 1] = accessMat(d_flow, wave - 1, col + 1);
-//
-//     int temp_flow = accessMat(d_flow, wave, col) + temp[s_idx] * 2;
-//     int old = accessMat(d_flow, wave, col);
-//
-//     __syncthreads();
-//
-//     if (col > 0)
-//         temp_flow += temp[s_idx - 1];
-//     if (col < columns - 1)
-//         temp_flow += temp[s_idx + 1];
-//     int div = 4;
-//     if (col > 0 && col < columns - 1)
-//         div = 5;
-//     temp_flow /= div;
-//     old = atomicExch(&accessMat(d_flow, wave, col), temp_flow);
-//     int var = abs(old - temp_flow);
-//     atomicMax(d_max_var, var);
-// }
-// ```
-
 
 == MPI
 
@@ -460,7 +416,9 @@ As the problem looked very complex at the beginnning and really hard to parallel
 
 == OpenMP
 
-== CUDA
+== MPI + CUDA
+
+I've tried the MPI version + CUDA, but the amount of memory needed to be transferred made everything way slower (3x)
 
 // TODO:
 // - [X] data vs task parallelism

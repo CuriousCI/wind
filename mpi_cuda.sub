@@ -1,0 +1,18 @@
+universe = parallel
+executable = /home/cicio_2048752/openmpiscript.sh
+arguments = /home/cicio_2048752/wind_mpi_cuda <args>
+should_transfer_files = YES
+transfer_input_files = /home/cicio_2048752/wind_mpi_cuda
+when_to_transfer_output = on_exit_or_evict
+output = logs/mpi_cuda.out.$(NODE)
+error = logs/mpi_cuda.err.$(NODE)
+log = logs/mpi_cuda.log
+
+machine_count = 6 
+# request_cpus = 0
+request_gpus = 1
+
+getenv = True
+
+queue
+

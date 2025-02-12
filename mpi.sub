@@ -13,3 +13,4 @@ request_cpus = 0
 
 getenv = True
 
+queue

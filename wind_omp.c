@@ -13,13 +13,15 @@
  * This work is licensed under a Creative Commons Attribution-ShareAlike 4.0
  * International License. https://creativecommons.org/licenses/by-sa/4.0/
  */
-#include "util.h"
 #include <limits.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+
+#include "util.h"
 
 /* Headers for the OpenMP assignment versions */
 #include <omp.h>
@@ -45,17 +47,59 @@ typedef struct {
     int old_flow;             // To annotate the flow before applying effects
 } particle_t;
 
+/*
+ * Function: Particle compare
+ * 	This function compares two moving particles by position
+ */
 static int particle_cmp(const void *p1, const void *p2) {
     particle_t *p_1 = (particle_t *)p1, *p_2 = (particle_t *)p2;
 
-    if (p_1->pos_row < p_2->pos_row)
+    int pos_1_row = p_1->pos_row / PRECISION;
+    int pos_1_col = p_1->pos_col / PRECISION;
+    int pos_2_row = p_2->pos_row / PRECISION;
+    int pos_2_col = p_2->pos_col / PRECISION;
+
+    if (pos_1_row < pos_2_row) {
         return -1;
-    if (p_1->pos_row > p_2->pos_row)
+    }
+
+    if (pos_1_row > pos_2_row) {
         return 1;
-    if (p_1->pos_col < p_2->pos_col)
+    }
+
+    if (pos_1_col < pos_2_col) {
         return -1;
-    if (p_1->pos_col > p_2->pos_col)
+    }
+
+    if (pos_1_col > pos_2_col) {
         return 1;
+    }
+
+    return 0;
+}
+
+/*
+ * Function: Particle compare
+ * 	This function compares two fixed particles by matrix position
+ */
+static int particle_f_cmp(const void *p1, const void *p2) {
+    particle_t *p_1 = (particle_t *)p1, *p_2 = (particle_t *)p2;
+
+    if (p_1->pos_row < p_2->pos_row) {
+        return -1;
+    }
+
+    if (p_1->pos_row > p_2->pos_row) {
+        return 1;
+    }
+
+    if (p_1->pos_col < p_2->pos_col) {
+        return -1;
+    }
+
+    if (p_1->pos_col > p_2->pos_col) {
+        return 1;
+    }
 
     return 0;
 }
@@ -80,93 +124,123 @@ double cp_Wtime() {
  * Function: Update flow in a matrix position
  * 	This function can be changed and/or optimized by the students
  */
-int update_flow(int *flow, int *flow_copy, int row, int col, int columns) {
-    if (col == 0) { // Update if border left
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col)
-                                     + accessMat(flow_copy, row - 1, col) * 2
-                                     + accessMat(flow_copy, row - 1, col + 1))
-                                    / 4;
-    } else if (col == columns - 1) { // Update if border right
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col)
-                                     + accessMat(flow_copy, row - 1, col) * 2
-                                     + accessMat(flow_copy, row - 1, col - 1))
-                                    / 4;
-    } else { // Update in central part
-        accessMat(flow, row, col) = (accessMat(flow_copy, row, col)
-                                     + accessMat(flow_copy, row - 1, col) * 2
-                                     + accessMat(flow_copy, row - 1, col - 1)
-                                     + accessMat(flow_copy, row - 1, col + 1))
-                                    / 5;
+inline void update_flow(int *flow, int *flow_copy, int row, int col, int columns) {
+    int temp_flow = accessMat(flow_copy, row, col) + accessMat(flow_copy, row - 1, col) * 2;
+
+    if (col > 0) {
+        temp_flow += accessMat(flow_copy, row - 1, col - 1);
     }
 
-    // Return flow variation at this position
-    return abs(accessMat(flow_copy, row, col) - accessMat(flow, row, col));
+    if (col < columns - 1) {
+        temp_flow += accessMat(flow_copy, row - 1, col + 1);
+    }
+
+    if (col > 0 && col < columns - 1) {
+        temp_flow /= 5;
+    } else {
+        temp_flow /= 4;
+    }
+
+    accessMat(flow, row, col) = temp_flow;
+}
+
+/*
+ * Function: Update flow in a particle position
+ * 	This function updates the flow based on a particle's pressure
+ */
+inline void update_back_flow(
+    int *flow, vec2_t *particles_pos, int *particles_back, int particle, int columns
+) {
+    int row = particles_pos[particle].row;
+    int col = particles_pos[particle].col;
+    int back = particles_back[particle];
+
+    /* Update flow in particle position */
+
+    accessMat(flow, row, col) -= back;
+    int temp_flow = back / 2;
+
+    /* Update flow in row above */
+
+    if (col > 0) {
+        accessMat(flow, row - 1, col - 1) += back / 4;
+    } else {
+        temp_flow += back / 4;
+    }
+
+    if (col < columns - 1) {
+        accessMat(flow, row - 1, col + 1) += back / 4;
+    } else {
+        temp_flow += back / 4;
+    }
+
+    accessMat(flow, row - 1, col) += temp_flow;
 }
 
 /*
  * Function: Move particle
  * 	This function can be changed and/or optimized by the students
  */
-void move_particle(
-    int *flow,
-    particle_t *particles,
+inline void move_particle(
+    const int *flow,
+    particle_m_t *particles_m,
     int particle,
-    int rows,
+    int border_rows,
+    int border_columns,
     int columns,
-    vec2_t *particles_pos
+    vec2_t *particles_m_pos,
+    const int *particles_m_mass
 ) {
-    // Compute movement for each step
+    int row = particles_m_pos[particle].row;
+    int col = particles_m_pos[particle].col;
+
+    /* Compute movement for each step */
     for (int step = 0; step < STEPS; step++) {
-        int row = particles_pos[particle].row;
-        int col = particles_pos[particle].col;
-        // Highly simplified phisical model
-        /*TODO: loro due */
-        /*int row = particles[particle].pos_row / PRECISION;*/
-        /*int col = particles[particle].pos_col / PRECISION;*/
-
+        /* Highly simplified phisical model */
         int pressure = accessMat(flow, row - 1, col);
-        int left, right;
-        if (col == 0)
-            left = 0;
-        else
+        int left = 0;
+        int right = 0;
+
+        if (col > 0) {
             left = pressure - accessMat(flow, row - 1, col - 1);
-        if (col == columns - 1)
-            right = 0;
-        else
+        }
+
+        if (col < columns - 1) {
             right = pressure - accessMat(flow, row - 1, col + 1);
+        }
 
-        /*TODO: loro due */
-        int flow_row
-            = (int)((float)pressure / particles[particle].mass * PRECISION);
-        int flow_col = (int)((float)(right - left) / particles[particle].mass
-                             * PRECISION);
+        int flow_row = (int)((float)pressure / particles_m_mass[particle] * PRECISION);
+        int flow_col = (int)((float)(right - left) / particles_m_mass[particle] * PRECISION);
 
-        // Speed change
-        particles[particle].speed_row
-            = (particles[particle].speed_row + flow_row) / 2;
-        particles[particle].speed_col
-            = (particles[particle].speed_col + flow_col) / 2;
+        /* Speed change */
+        particles_m[particle].speed.row = (particles_m[particle].speed.row + flow_row) / 2;
+        particles_m[particle].speed.col = (particles_m[particle].speed.col + flow_col) / 2;
 
-        // Movement
-        particles[particle].pos_row
-            += particles[particle].speed_row / STEPS / 2;
-        particles[particle].pos_col
-            += particles[particle].speed_col / STEPS / 2;
+        /* Movement */
+        particles_m[particle].pos.row += particles_m[particle].speed.row / STEPS / 2;
+        particles_m[particle].pos.col += particles_m[particle].speed.col / STEPS / 2;
 
-        // Control limits
-        /* TODO: don't do stuff if already on border */
-        if (particles[particle].pos_row >= PRECISION * rows)
-            particles[particle].pos_row = PRECISION * rows - 1;
-        if (particles[particle].pos_col < 0)
-            particles[particle].pos_col = 0;
-        if (particles[particle].pos_col >= PRECISION * columns)
-            particles[particle].pos_col = PRECISION * columns - 1;
+        /* Control limits */
 
-        particles_pos[particle].row
-            = (row = particles[particle].pos_row / PRECISION);
-        particles_pos[particle].col
-            = (col = particles[particle].pos_col / PRECISION);
+        if (particles_m[particle].pos.row >= border_rows) {
+            particles_m[particle].pos.row = border_rows - 1;
+        }
+
+        if (particles_m[particle].pos.col < 0) {
+            particles_m[particle].pos.col = 0;
+        }
+
+        if (particles_m[particle].pos.col >= border_columns) {
+            particles_m[particle].pos.col = border_columns - 1;
+        }
+
+        row = particles_m[particle].pos.row / PRECISION;
+        col = particles_m[particle].pos.col / PRECISION;
     }
+
+    /* Update position realtive to matrix */
+    particles_m_pos[particle].row = row;
+    particles_m_pos[particle].col = col;
 }
 
 #ifdef DEBUG
@@ -189,43 +263,46 @@ void print_status(
      * Thus, it is never used when measuring times in the leaderboard
      */
     int i, j;
-    printf(
-        "Iteration: %d, max_var: %f\n", iteration, (float)max_var / PRECISION
-    );
+    printf("Iteration: %d, max_var: %f\n", iteration, (float)max_var / PRECISION);
 
     printf("  +");
-    for (j = 0; j < columns; j++)
+    for (j = 0; j < columns; j++) {
         printf("---");
+    }
     printf("+\n");
     for (i = 0; i < rows; i++) {
-        if (i % STEPS == iteration % STEPS)
+        if (i % STEPS == iteration % STEPS) {
             printf("->|");
-        else
+        } else {
             printf("  |");
+        }
 
         for (j = 0; j < columns; j++) {
             char symbol;
-            if (accessMat(flow, i, j) >= 10 * PRECISION)
+            if (accessMat(flow, i, j) >= 10 * PRECISION) {
                 symbol = '*';
-            else if (accessMat(flow, i, j) >= 1 * PRECISION)
+            } else if (accessMat(flow, i, j) >= 1 * PRECISION) {
                 symbol = '0' + accessMat(flow, i, j) / PRECISION;
-            else if (accessMat(flow, i, j) >= 0.5 * PRECISION)
+            } else if (accessMat(flow, i, j) >= 0.5 * PRECISION) {
                 symbol = '+';
-            else if (accessMat(flow, i, j) > 0)
+            } else if (accessMat(flow, i, j) > 0) {
                 symbol = '.';
-            else
+            } else {
                 symbol = ' ';
+            }
 
-            if (accessMat(particle_locations, i, j) > 0)
+            if (accessMat(particle_locations, i, j) > 0) {
                 printf("[%c]", symbol);
-            else
+            } else {
                 printf(" %c ", symbol);
+            }
         }
         printf("|\n");
     }
     printf("  +");
-    for (j = 0; j < columns; j++)
+    for (j = 0; j < columns; j++) {
         printf("---");
+    }
     printf("+\n\n");
 }
 #endif
@@ -237,12 +314,12 @@ void show_usage(char *program_name) {
     fprintf(stderr, "Usage: %s ", program_name);
     fprintf(
         stderr,
-        "<rows> <columns> <maxIter> <threshold> <inlet_pos> <inlet_size> "
-        "<fixed_particles_pos> <fixed_particles_size> "
+        "<rows> <columns> <maxIter> <threshold> <inlet_pos> "
+        "<inlet_size> <fixed_particles_pos> <fixed_particles_size> "
         "<fixed_particles_density> <moving_particles_pos> "
-        "<moving_particles_size> <moving_particles_density> <short_rnd1> "
-        "<short_rnd2> <short_rnd3> [ <fixed_row> <fixed_col> "
-        "<fixed_resistance> ... ]\n"
+        "<moving_particles_size> <moving_particles_density> "
+        "<short_rnd1> <short_rnd2> <short_rnd3> [ <fixed_row> "
+        "<fixed_col> <fixed_resistance> ... ]\n"
     );
     fprintf(stderr, "\n");
 }
@@ -283,8 +360,8 @@ int main(int argc, char *argv[]) {
     if (argc < 16) {
         fprintf(
             stderr,
-            "-- Error: Not enough arguments when reading configuration from "
-            "the command line\n\n"
+            "-- Error: Not enough arguments when reading "
+            "configuration from the command line\n\n"
         );
         show_usage(argv[0]);
         exit(EXIT_FAILURE);
@@ -317,9 +394,7 @@ int main(int argc, char *argv[]) {
     // Check correct number of parameters for fixed particles
     if (argc > 16) {
         if ((argc - 16) % 3 != 0) {
-            fprintf(
-                stderr, "-- Error in number of fixed position particles\n\n"
-            );
+            fprintf(stderr, "-- Error in number of fixed position particles\n\n");
             show_usage(argv[0]);
             exit(EXIT_FAILURE);
         }
@@ -327,10 +402,8 @@ int main(int argc, char *argv[]) {
         num_particles = (argc - 16) / 3;
     }
     // Add number of fixed and moving particles in the bands
-    int num_particles_f_band
-        = (int)(particles_f_band_size * columns * particles_f_density);
-    int num_particles_m_band
-        = (int)(particles_m_band_size * columns * particles_m_density);
+    int num_particles_f_band = (int)(particles_f_band_size * columns * particles_f_density);
+    int num_particles_m_band = (int)(particles_m_band_size * columns * particles_m_density);
     num_particles += num_particles_f_band;
     num_particles += num_particles_m_band;
 
@@ -339,27 +412,23 @@ int main(int argc, char *argv[]) {
         particles = (particle_t *)malloc(num_particles * sizeof(particle_t));
         if (particles == NULL) {
             fprintf(
-                stderr,
-                "-- Error allocating particles structure for size: %d\n",
-                num_particles
+                stderr, "-- Error allocating particles structure for size: %d\n", num_particles
             );
             exit(EXIT_FAILURE);
         }
-    } else
+    } else {
         particles = NULL;
+    }
 
     /* 1.6.1. Read fixed particles */
     int particle = 0;
     if (argc > 16) {
         int fixed_particles = (argc - 16) / 3;
         for (particle = 0; particle < fixed_particles; particle++) {
-            particles[particle].pos_row
-                = atoi(argv[16 + particle * 3]) * PRECISION;
-            particles[particle].pos_col
-                = atoi(argv[17 + particle * 3]) * PRECISION;
+            particles[particle].pos_row = atoi(argv[16 + particle * 3]) * PRECISION;
+            particles[particle].pos_col = atoi(argv[17 + particle * 3]) * PRECISION;
             particles[particle].mass = 0;
-            particles[particle].resistance
-                = (int)(atof(argv[18 + particle * 3]) * PRECISION);
+            particles[particle].resistance = (int)(atof(argv[18 + particle * 3]) * PRECISION);
             particles[particle].speed_row = 0;
             particles[particle].speed_col = 0;
         }
@@ -368,10 +437,8 @@ int main(int argc, char *argv[]) {
     for (; particle < num_particles - num_particles_m_band; particle++) {
         particles[particle].pos_row
             = (int)(PRECISION
-                    * (particles_f_band_pos
-                       + particles_f_band_size * erand48(random_seq)));
-        particles[particle].pos_col
-            = (int)(PRECISION * columns * erand48(random_seq));
+                    * (particles_f_band_pos + particles_f_band_size * erand48(random_seq)));
+        particles[particle].pos_col = (int)(PRECISION * columns * erand48(random_seq));
         particles[particle].mass = 0;
         particles[particle].resistance = (int)(PRECISION * erand48(random_seq));
         particles[particle].speed_row = 0;
@@ -382,12 +449,9 @@ int main(int argc, char *argv[]) {
     for (; particle < num_particles; particle++) {
         particles[particle].pos_row
             = (int)(PRECISION
-                    * (particles_m_band_pos
-                       + particles_m_band_size * erand48(random_seq)));
-        particles[particle].pos_col
-            = (int)(PRECISION * columns * erand48(random_seq));
-        particles[particle].mass
-            = (int)(PRECISION * (1 + 5 * erand48(random_seq)));
+                    * (particles_m_band_pos + particles_m_band_size * erand48(random_seq)));
+        particles[particle].pos_col = (int)(PRECISION * columns * erand48(random_seq));
+        particles[particle].mass = (int)(PRECISION * (1 + 5 * erand48(random_seq)));
         particles[particle].resistance = (int)(PRECISION * erand48(random_seq));
         particles[particle].speed_row = 0;
         particles[particle].speed_col = 0;
@@ -403,8 +467,8 @@ int main(int argc, char *argv[]) {
         (float)var_threshold / PRECISION
     );
     printf(
-        "Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  Band "
-        "of moving particles: %d, %d, %f\n",
+        "Arguments, Inlet: %d, %d  Band of fixed particles: %d, %d, %f  "
+        "Band of moving particles: %d, %d, %f\n",
         inlet_pos,
         inlet_size,
         particles_f_band_pos,
@@ -445,181 +509,490 @@ int main(int argc, char *argv[]) {
      *
      */
 
+    const int border_rows = PRECISION * rows;
+    const int border_columns = PRECISION * columns;
+    const int num_particles_f = num_particles - num_particles_m_band;
+    const int num_particles_m = num_particles_m_band;
+
+    particle_t *particles_moving = particles + num_particles_f;
+
     /* 3. Initialization */
-    flow = calloc(rows * columns, sizeof(int));
-    flow_copy = calloc(rows * columns, sizeof(int));
-    particle_locations = calloc(rows * columns, sizeof(int));
-    int *backs = malloc(num_particles * sizeof(int));
-    vec2_t *particles_pos = malloc(num_particles * sizeof(vec2_t));
+    flow = (int *)calloc((size_t)rows * (size_t)columns, sizeof(int));
+    flow_copy = (int *)calloc((size_t)rows * (size_t)columns, sizeof(int));
+    particle_locations = (int *)calloc((size_t)rows * (size_t)columns, sizeof(int));
 
-    int num_particles_f = num_particles - num_particles_m_band;
-    qsort(particles, num_particles_f, sizeof(particle_t), particle_cmp);
-    qsort(
-        &particles[num_particles_f],
-        num_particles - num_particles_f,
-        sizeof(particle_t),
-        particle_cmp
-    );
+    if (flow == NULL || flow_copy == NULL || particle_locations == NULL) {
+        fprintf(
+            stderr, "-- Error allocating culture structures for size: %d x %d \n", rows, columns
+        );
+        exit(EXIT_FAILURE);
+    }
 
-    for (int particle = 0; particle < num_particles; particle++) {
-        particles_pos[particle].row = particles[particle].pos_row / PRECISION;
-        particles_pos[particle].col = particles[particle].pos_col / PRECISION;
-        accessMat(
-            particle_locations,
-            particles_pos[particle].row,
-            particles_pos[particle].col
-        )++;
+    particle_m_t *particles_m = NULL;
+    vec2_t *particles_pos = NULL;
+    vec2_t *particles_m_pos = NULL;
+    int *particles_res = NULL;
+    int *particles_back = NULL;
+    int *particles_m_res = NULL;
+    int *particles_m_back = NULL;
+    int *particles_m_mass = NULL;
+
+    if (num_particles > 0) {
+        particles_pos = (vec2_t *)malloc(num_particles * sizeof(vec2_t));
+        particles_res = (int *)malloc(num_particles * sizeof(int));
+        particles_back = (int *)malloc(num_particles * sizeof(int));
+
+        if (particles_pos == NULL || particles_res == NULL || particles_back == NULL) {
+            fprintf(
+                stderr, "-- Error allocating particles structures for size: %d\n", num_particles
+            );
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (num_particles_m > 0) {
+        particles_m = (particle_m_t *)malloc(num_particles_m * sizeof(particle_m_t));
+        particles_m_mass = (int *)malloc(num_particles_m * sizeof(float));
+        particles_m_pos = particles_pos + num_particles_f;
+        particles_m_res = particles_res + num_particles_f;
+        particles_m_back = particles_back + num_particles_f;
+
+        if (particles_m == NULL || particles_m_mass == NULL) {
+            fprintf(
+                stderr,
+                "-- Error allocating moving particles structures for size: %d\n",
+                num_particles_m
+            );
+            exit(EXIT_FAILURE);
+        }
+    }
+
+#pragma omp parallel default(none)                                                             \
+    firstprivate(particles, particles_moving, num_particles_f, num_particles_m)
+    {
+        if (num_particles_f > 0) {
+#pragma omp for
+            for (int particle = 0; particle < num_particles_f; particle++) {
+                particles[particle].pos_row /= PRECISION;
+                particles[particle].pos_col /= PRECISION;
+            }
+        }
+
+#pragma omp single
+        {
+            if (num_particles_f > 0) {
+#pragma omp task
+                qsort(particles, num_particles_f, sizeof(particle_t), particle_f_cmp);
+            }
+
+            if (num_particles_m > 0) {
+#pragma omp task
+                qsort(particles_moving, num_particles_m, sizeof(particle_t), particle_cmp);
+            }
+        }
+    }
+
+#pragma omp parallel default(none) firstprivate(                                               \
+        columns,                                                                               \
+            particle_locations,                                                                \
+            particles,                                                                         \
+            particles_moving,                                                                  \
+            particles_pos,                                                                     \
+            particles_res,                                                                     \
+            particles_m,                                                                       \
+            particles_m_pos,                                                                   \
+            particles_m_res,                                                                   \
+            particles_m_mass,                                                                  \
+            num_particles,                                                                     \
+            num_particles_m,                                                                   \
+            num_particles_f                                                                    \
+)
+    {
+        /* Transfer data from particle_t* particles to multiple arrays */
+#pragma omp for nowait
+        for (int particle = 0; particle < num_particles_m; particle++) {
+            particles_m[particle] = (particle_m_t){
+          .pos =
+              {
+                  .row = particles_moving[particle].pos_row,
+                  .col = particles_moving[particle].pos_col,
+              },
+          .speed =
+              {
+                  .row = particles_moving[particle].speed_row,
+                  .col = particles_moving[particle].speed_col,
+              },
+      };
+
+            particles_m_mass[particle] = particles_moving[particle].mass;
+        }
+
+        /* Transfer data from particle_t* particles to multiple arrays */
+#pragma omp for
+        for (int particle = 0; particle < num_particles_f; particle++) {
+            particles_pos[particle].row = particles[particle].pos_row;
+            particles_pos[particle].col = particles[particle].pos_col;
+            particles_res[particle] = particles[particle].resistance;
+        }
+
+#pragma omp for
+        for (int particle = 0; particle < num_particles_m; particle++) {
+            particles_m_pos[particle].row = particles_moving[particle].pos_row / PRECISION;
+            particles_m_pos[particle].col = particles_moving[particle].pos_col / PRECISION;
+            particles_m_res[particle] = particles_moving[particle].resistance;
+        }
+
+        /* Calculate initial particle_locations state */
+#pragma omp for
+        for (int particle = 0; particle < num_particles; particle++)
+#pragma omp atomic
+            accessMat(
+                particle_locations, particles_pos[particle].row, particles_pos[particle].col
+            )++;
+    }
+
+    int num_threads;
+
+    bool particles_f_parallelizable = true;
+    int *particles_f_counts = NULL;
+    int *particles_f_displs = NULL;
+    int *particles_f_border_counts = NULL;
+    int *particles_f_border_displs = NULL;
+
+    /* Distribute fixed particles to each thread in such a way to avoid race conditions */
+    if (num_particles_f > 0) {
+        /* Get the number of threads in OMP_NUM_THREADS */
+#pragma omp parallel default(none) shared(num_threads)
+        {
+#pragma omp single
+            num_threads = omp_get_num_threads();
+        }
+
+        particles_f_counts = calloc(num_threads, sizeof(int));
+        particles_f_displs = calloc(num_threads, sizeof(int));
+        particles_f_border_counts = calloc(num_threads, sizeof(int));
+        particles_f_border_displs = calloc(num_threads, sizeof(int));
+
+        distribute(num_particles_f, num_threads, particles_f_counts, particles_f_displs);
+
+        /* Each thread takes the whole row */
+        for (int thread_num = 1; thread_num < num_threads; thread_num++) {
+            int displ = particles_f_displs[thread_num];
+            while (displ > 0 && particles_pos[displ - 1].row == particles_pos[displ].row) {
+                displ--;
+                particles_f_displs[thread_num]--;
+                particles_f_counts[thread_num]++;
+                particles_f_counts[thread_num - 1]--;
+            }
+        }
+
+        /* Eliminate rows on the borders */
+        for (int thread_num = 0; thread_num < num_threads - 1; thread_num++) {
+            int border = particles_f_displs[thread_num] + particles_f_counts[thread_num];
+            int next_thread_row = particles_pos[particles_f_displs[thread_num + 1]].row;
+            while (particles_f_counts[thread_num] > 0
+                   && particles_pos[border - 1].row == next_thread_row - 1) {
+                border--;
+                particles_f_counts[thread_num]--;
+            }
+        }
+
+        /* Assign eliminated rows to threads */
+        for (int thread_num = 0; thread_num < num_threads - 1; thread_num++) {
+            particles_f_border_displs[thread_num]
+                = particles_f_displs[thread_num] + particles_f_counts[thread_num];
+            particles_f_border_counts[thread_num]
+                = particles_f_displs[thread_num + 1] - particles_f_border_displs[thread_num];
+        }
+
+        /* If the eliminated rows in conflict, fixed particles aren't parallelizable */
+        for (int thread_num = 0; thread_num < num_threads - 2; thread_num++) {
+            if (particles_pos[particles_f_border_displs[thread_num]].row
+                    == particles_pos[particles_f_border_displs[thread_num + 1]].row
+                || particles_pos[particles_f_border_displs[thread_num]].row
+                       == particles_pos[particles_f_border_displs[thread_num + 1]].row - 1
+
+            ) {
+                particles_f_parallelizable = false;
+                break;
+            }
+        }
     }
 
     /* 4. Simulation */
     int max_var = INT_MAX, iter;
     for (iter = 1; iter <= max_iter && max_var > var_threshold; iter++) {
-        // 4.1. Change inlet values each STEP iterations
+
         if (iter % STEPS == 1) {
+
+            /* 4.1. Change inlet values each STEP iterations */
             for (j = inlet_pos; j < inlet_pos + inlet_size; j++) {
-                double phase = iter / STEPS * (M_PI / 4);
+                /* 4.1.1. Change the fans phase */
+                double phase = iter / STEPS * (M_PI / 4); // NOLINT
                 double phase_step = M_PI / 2 / inlet_size;
-                double pressure_level
-                    = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
+                double pressure_level = 9 + 2 * sin(phase + (j - inlet_pos) * phase_step);
+
+                /* 4.1.2. Add some random noise */
                 double noise = 0.5 - erand48(random_seq);
-                accessMat(flow, 0, j)
-                    = (int)(PRECISION * (pressure_level + noise));
-            }
-            // End inlet update
+
+                /* 4.1.3. Store level in the first row of the ancillary structure */
+                accessMat(flow, 0, j) = (int)(PRECISION * (pressure_level + noise));
+            } /* End inlet update */
 
 #ifdef MODULE2
 #ifdef MODULE3
-            // 4.2. Particles movement each STEPS iterations
-            // Clean particle positions
-            /*for (int particle = num_particles_f; particle < num_particles;
-             * particle++)*/
-            /*    accessMat(particle_locations, particles_pos[particle].row,
-             * particles_pos[particle].col)--;*/
 
-#pragma omp parallel for
-            for (int particle = num_particles_f; particle < num_particles;
-                 particle++) {
+            if (num_particles > 0)
+#pragma omp parallel default(none) firstprivate(                                               \
+        flow,                                                                                  \
+            flow_copy,                                                                         \
+            particle_locations,                                                                \
+            particles_m,                                                                       \
+            particles_pos,                                                                     \
+            particles_res,                                                                     \
+            particles_back,                                                                    \
+            particles_m_pos,                                                                   \
+            particles_m_res,                                                                   \
+            particles_m_back,                                                                  \
+            particles_m_mass,                                                                  \
+            particles_f_parallelizable,                                                        \
+            particles_f_displs,                                                                \
+            particles_f_counts,                                                                \
+            particles_f_border_displs,                                                         \
+            particles_f_border_counts,                                                         \
+            num_particles,                                                                     \
+            num_particles_f,                                                                   \
+            num_particles_m,                                                                   \
+            columns,                                                                           \
+            border_rows,                                                                       \
+            border_columns                                                                     \
+)
+            {
+
+                /* 4.2. Particles movement each STEPS iterations */
+                if (num_particles_m > 0) {
+                    /* Movable particles */
+#pragma omp for
+                    for (int particle = 0; particle < num_particles_m; particle++) {
+                        /* Remove previous particle position */
 #pragma omp atomic
-                accessMat(
-                    particle_locations,
-                    particles_pos[particle].row,
-                    particles_pos[particle].col
-                )--;
+                        accessMat(
+                            particle_locations,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col
+                        )--;
 
-                move_particle(
-                    flow, particles, particle, rows, columns, particles_pos
-                );
+                        move_particle(
+                            flow,
+                            particles_m,
+                            particle,
+                            border_rows,
+                            border_columns,
+                            columns,
+                            particles_m_pos,
+                            particles_m_mass
+                        );
+
+                        /* Annotate current particle position */
 #pragma omp atomic
-                accessMat(
-                    particle_locations,
-                    particles_pos[particle].row,
-                    particles_pos[particle].col
-                )++;
-            }
-
-            /*for (int particle = num_particles_f; particle < num_particles;
-             * particle++)*/
-            /*    accessMat(particle_locations, particles_pos[particle].row,
-             * particles_pos[particle].col)++;*/
-
-// 4.3. Effects due to particles each STEPS iterations
-#pragma omp parallel for
-            for (int particle = 0; particle < num_particles; particle++) {
-                int row = particles_pos[particle].row;
-                int col = particles_pos[particle].col;
-
-                /*update_flow(flow, flow_copy, particle_locations, row, col,
-                 * columns, 0);*/
-                update_flow(flow, flow_copy, row, col, columns);
-                // particles[particle].old_flow = accessMat(flow, row, col);
-                backs[particle]
-                    = (int)((long)accessMat(flow, row, col)
-                            * particles[particle].resistance / PRECISION)
-                      / accessMat(
-                          particle_locations,
-                          particles_pos[particle].row,
-                          particles_pos[particle].col
-                      );
-            }
-
+                        accessMat(
+                            particle_locations,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col
+                        )++;
+                    }
+                } /* End particles movements */
 #endif // MODULE3
-            for (particle = 0; particle < num_particles; particle++) {
-                int row = particles_pos[particle].row;
-                int col = particles_pos[particle].col;
-                int back = backs[particle];
 
-                accessMat(flow, row, col) -= back;
-                accessMat(flow, row - 1, col) += back / 2;
+                /* 4.3. Effects due to particles each STEPS iterations */
+                if (num_particles_f > 0) {
+#pragma omp for
+                    for (int particle = 0; particle < num_particles_f; particle++) {
+                        update_flow(
+                            flow,
+                            flow_copy,
+                            particles_pos[particle].row,
+                            particles_pos[particle].col,
+                            columns
+                        );
+                    }
+                }
 
-                if (col > 0)
-                    accessMat(flow, row - 1, col - 1) += back / 4;
-                else
-                    accessMat(flow, row - 1, col) += back / 4;
+                if (num_particles_m > 0) {
+#pragma omp for
+                    for (int particle = 0; particle < num_particles_m; particle++) {
+                        update_flow(
+                            flow,
+                            flow_copy,
+                            particles_m_pos[particle].row,
+                            particles_m_pos[particle].col,
+                            columns
+                        );
+                    }
+                }
 
-                if (col < columns - 1)
-                    accessMat(flow, row - 1, col + 1) += back / 4;
-                else
-                    accessMat(flow, row - 1, col) += back / 4;
-            }
-        }
+                if (num_particles_f > 0) {
+#pragma omp for
+                    for (int particle = 0; particle < num_particles_f; particle++) {
+                        int row = particles_pos[particle].row;
+                        int col = particles_pos[particle].col;
+                        particles_back[particle] = (int)((long)accessMat(flow, row, col)
+                                                         * particles_res[particle] / PRECISION)
+                                                   / accessMat(particle_locations, row, col);
+                    }
+                }
 
-        // 4.4. Copy data in the ancillary structure
-        if (iter % STEPS == 1) {
-            memcpy(flow_copy, flow, rows * columns * sizeof(int));
-        } else {
-            int wave_front = (iter - 1) % STEPS;
-            if (wave_front == 0)
-                wave_front = STEPS;
+                if (num_particles_m > 0) {
+#pragma omp for
+                    for (int particle = 0; particle < num_particles_m; particle++) {
+                        int row = particles_m_pos[particle].row;
+                        int col = particles_m_pos[particle].col;
+                        particles_m_back[particle]
+                            = (int)((long)accessMat(flow, row, col) * particles_m_res[particle]
+                                    / PRECISION)
+                              / accessMat(particle_locations, row, col);
+                    }
+                }
 
-#pragma omp parallel for
-            for (int wave = wave_front; wave < (iter < rows ? iter : rows);
-                 wave += STEPS)
-                memcpy(
-                    flow_copy + wave * columns,
-                    flow + wave * columns,
-                    columns * sizeof(int)
-                );
-        }
+                if (particles_f_parallelizable && num_particles_f > 0) {
+                    int thread_num = omp_get_thread_num();
 
-        // 4.5. Propagation stage
-        // 4.5.1. Initialize data to detect maximum variability
-        if (iter % STEPS == 1)
+                    for (int particle = particles_f_displs[thread_num];
+                         particle
+                         < particles_f_displs[thread_num] + particles_f_counts[thread_num];
+                         particle++) {
+                        update_back_flow(
+                            flow, particles_pos, particles_back, particle, columns
+                        );
+                    }
+#pragma omp barrier
+                    for (int particle = particles_f_border_displs[thread_num];
+                         particle < particles_f_border_displs[thread_num]
+                                        + particles_f_border_counts[thread_num];
+                         particle++) {
+
+                        update_back_flow(
+                            flow, particles_pos, particles_back, particle, columns
+                        );
+                    }
+
+                    if (num_particles_m > 0) {
+#pragma omp barrier
+#pragma omp single
+                        for (int particle = 0; particle < num_particles_m; particle++) {
+                            update_back_flow(
+                                flow, particles_m_pos, particles_m_back, particle, columns
+                            );
+                        }
+                    }
+                } else if (num_particles > 0) {
+#pragma omp single
+                    for (int particle = 0; particle < num_particles; particle++) {
+                        update_back_flow(
+                            flow, particles_pos, particles_back, particle, columns
+                        );
+                    }
+                }
+            } /* End effects */
+
+            /* 4.5. Propagation stage */
+            /* 4.5.1. Initialize data to detect maximum variability */
             max_var = 0;
+#endif // MODULE2
+        }
 
-        // 4.5.2. Execute propagation on the wave fronts
         int wave_front = iter % STEPS;
-        if (wave_front == 0)
+        if (wave_front == 0) {
             wave_front = STEPS;
 
-#pragma omp parallel for reduction(max : max_var)
-        for (int wave = wave_front; wave < (iter + 1 < rows ? iter + 1 : rows);
-             wave += STEPS)
-            for (int col = 0; col < columns; col++) {
-                if (accessMat(particle_locations, wave, col) == 0) {
-                    /*int var = update_flow(flow, flow_copy, particle_locations,
-                     * wave, col, columns, 1);*/
-                    int var = update_flow(flow, flow_copy, wave, col, columns);
-                    if (var > max_var)
-                        max_var = var;
+            /* Copy positions to update the flow of fixed particles in the next iteration */
+            if (num_particles_f > 0) {
+#pragma omp parallel for default(none)                                                         \
+    firstprivate(flow, flow_copy, num_particles_f, particles_pos, columns)
+                for (int particle = 0; particle < num_particles_f; particle++) {
+                    int row = particles_pos[particle].row;
+                    int col = particles_pos[particle].col;
+
+                    accessMat(flow_copy, row, col) = accessMat(flow, row, col);
+                    accessMat(flow_copy, row - 1, col) = accessMat(flow, row - 1, col);
+
+                    if (col > 0) {
+                        accessMat(flow_copy, row - 1, col - 1)
+                            = accessMat(flow, row - 1, col - 1);
+                    }
+
+                    if (col < columns - 1) {
+                        accessMat(flow_copy, row - 1, col + 1)
+                            = accessMat(flow, row - 1, col + 1);
+                    }
                 }
             }
-#endif // MODULE2
+
+            /* Copy the section of the matrix needed to update the flow of moving
+             * particles in the next iteration. This section gets smaller over time */
+            if (num_particles_m > 0) {
+                int min_row = INT_MAX;
+#pragma omp parallel for reduction(min : min_row) default(none)                                \
+    firstprivate(flow, flow_copy, num_particles_m, particles_m_pos)
+                for (int particle = 0; particle < num_particles_m; particle++) {
+                    if (particles_m_pos[particle].row < min_row) {
+                        min_row = particles_m_pos[particle].row;
+                    }
+                }
+
+                min_row--;
+
+                memcpy(
+                    flow_copy + min_row * columns,
+                    flow + min_row * columns,
+                    (rows - min_row) * columns * sizeof(int)
+                );
+            }
+        }
+
+        /* 4.5.2. Execute propagation on the wave fronts */
+        int last_wave = iter + 1 < rows ? iter + 1 : rows;
+#pragma omp parallel for reduction(max : max_var) default(none)                                \
+    firstprivate(flow, wave_front, last_wave, particle_locations, num_particles, columns)
+        for (int wave = wave_front; wave < last_wave; wave += STEPS) {
+            for (int col = 0; col < columns; col++) {
+                if (num_particles == 0 || accessMat(particle_locations, wave, col) == 0) {
+                    int prev = accessMat(flow, wave, col);
+                    update_flow(flow, flow, wave, col, columns);
+                    int var = abs(prev - accessMat(flow, wave, col));
+                    if (var > max_var) {
+                        max_var = var;
+                    }
+                }
+            }
+        } /* End propagation */
 
 #ifdef DEBUG
-        // 4.7. DEBUG: Print the current state of the simulation at the end of
-        // each iteration
-        print_status(
-            iter,
-            rows,
-            columns,
-            flow,
-            num_particles,
-            particle_locations,
-            max_var
-        );
+        // 4.7. DEBUG: Print the current state of the simulation at
+        // the end of each iteration
+        print_status(iter, rows, columns, flow, num_particles, particle_locations, max_var);
 #endif
+    } /* End iterations */
 
-    } // End iterations
+    /* Free resources */
+
+    if (num_particles > 0) {
+        free(particles_pos);
+        free(particles_res);
+        free(particles_back);
+    }
+
+    if (num_particles_m > 0) {
+        free(particles_m);
+        free(particles_m_mass);
+    }
+
+    if (num_particles_f > 0) {
+        free(particles_f_counts);
+        free(particles_f_displs);
+        free(particles_f_border_counts);
+        free(particles_f_border_displs);
+    }
 
     /*
      *
@@ -639,12 +1012,15 @@ int main(int argc, char *argv[]) {
     printf("Result: %d, %d", iter - 1, max_var);
     int res_row = (iter - 1 < rows - 1) ? iter - 1 : rows - 1;
     int ind;
-    for (ind = 0; ind < 6; ind++)
+    for (ind = 0; ind < 6; ind++) {
         printf(", %d", accessMat(flow, STEPS - 1, ind * columns / 6));
-    for (ind = 0; ind < 6; ind++)
+    }
+    for (ind = 0; ind < 6; ind++) {
         printf(", %d", accessMat(flow, res_row / 2, ind * columns / 6));
-    for (ind = 0; ind < 6; ind++)
+    }
+    for (ind = 0; ind < 6; ind++) {
         printf(", %d", accessMat(flow, res_row, ind * columns / 6));
+    }
     printf("\n");
 
     /* 7. Free resources */
@@ -656,116 +1032,3 @@ int main(int argc, char *argv[]) {
     /* 8. End */
     return 0;
 }
-
-/*for (int wave_front = 1; wave_front <= STEPS && iter <= max_iter && max_var >
- * var_threshold; wave_front++, iter++) {*/
-/*    if (wave_front == 1)*/
-/*        max_var = 0;*/
-/**/
-/*    // 4.4. Copy data in the ancillary structure*/
-/*    memcpy(flow_copy, flow, (iter < rows ? iter : rows) * columns *
- * sizeof(int));*/
-/**/
-/*    // 4.5.2. Execute propagation on the wave fronts*/
-/*    int stop = iter + 1 <= rows ? iter + 1 : rows;*/
-/**/
-/*    #pragma omp parallel for num_threads(6)*/
-/*    for (int col = 0; col < columns; col++) {*/
-/*        for (int wave = wave_front; wave < stop; wave += STEPS) {*/
-/*            int var = update_flow(flow, flow_copy, particle_locations, wave,
- * col, columns, 1);*/
-/*            if (var > max_var)*/
-/*                max_var = var;*/
-/*        }*/
-/*    }*/
-/*}*/
-
-/*omp_lock_t *matrix_locks = malloc(rows * columns * sizeof(omp_lock_t));*/
-/*for (size_t i = 0; i < rows; i++)*/
-/*    for (size_t j = 0; j < columns; j++)*/
-/*        omp_init_lock(&accessMat(matrix_locks, i, j));*/
-
-/*#pragma omp parallel for schedule(static, 1)*/
-/*omp_set_lock(&accessMat(matrix_locks, row, col));*/
-/*omp_set_lock(&accessMat(matrix_locks, row - 1, col));*/
-/*omp_unset_lock(&accessMat(matrix_locks, row, col));*/
-/*omp_unset_lock(&accessMat(matrix_locks, row - 1, col));*/
-
-/*for (size_t i = 0; i < rows; i++)*/
-/*    for (size_t j = 0; j < columns; j++)*/
-/*        omp_destroy_lock(&accessMat(matrix_locks, i, j));*/
-/*for (int particle = 0; particle < num_particles_f; particle++) {*/
-/*    particles_pos[particle].row = particles[particle].pos_row / PRECISION;*/
-/*    particles_pos[particle].col = particles[particle].pos_col / PRECISION;*/
-/*    accessMat(fixed_particle_locations, particles_pos[particle].row,
- * particles_pos[particle].col)++;*/
-/*}*/
-/*accessMat(fixed_particle_locations, particles_pos[particle].row,
- * particles_pos[particle].col)++;*/
-
-/*particles_pos[particle].col;*/
-/* TODO: basically, calculate displacements based on the number of threads, and
- * parallelize that */
-/*memcpy(particle_locations, fixed_particle_locations, rows * columns *
- * sizeof(int));*/
-/*for (int particle = num_particles_f; particle < num_particles; particle++)*/
-/*    accessMat(particle_locations, particles_pos[particle].row,
- * particles_pos[particle].col)++;*/
-/*int *fixed_particle_locations = calloc(rows * columns, sizeof(int));*/
-/*for (size_t i = 0; i < rows; i++)*/
-/*    for (size_t j = 0; j < columns; j++)*/
-/*        omp_destroy_lock(&accessMat(matrix_locks, i, j));*/
-/* TODO: OMP, get_num_threads, get_thread_id, do particle iff in range */
-/* TODO: build dynamic matrix*/
-/*#pragma omp parallel for*/
-/*            for (int particle = 0; particle < num_particles; particle++)*/
-/*backs[particle] = (int)((long)particles[particle].old_flow *
- * particles[particle].resistance / PRECISION) / accessMat(particle_locations,
- * particles_pos[particle].row, particles_pos[particle].col);*/
-/*#pragma omp parallel for num_threads(pool_size) schedule(static, 1)*/
-/*            for (int rank = 0; rank < pool_size; rank++) {*/
-/*                memcpy(*/
-/*                    flow_copy + rows_displs[rank] * columns,*/
-/*                    flow + rows_displs[rank] * columns,*/
-/*                    rows_counts[rank] * columns * sizeof(int));*/
-/*            }*/
-/*if (min_particle_row > 0)*/
-/*    memcpy(flow_copy, flow, columns * sizeof(int));*/
-/*memcpy(flow_copy + min_particle_row * columns, flow, particle_row_dist *
- * columns * sizeof(int));*/
-/*int *rows_displs = malloc(pool_size * sizeof(int)),*/
-/*    *rows_counts = malloc(pool_size * sizeof(int));*/
-/*scatter_all(rows, pool_size, rows_displs, rows_counts);*/
-/*sect_t rows_sect = sector(rows, );*/
-
-/*int update_flow(int *flow, int *flow_copy, int *particle_locations, int row,
- * int col, int columns, int skip_particles) {*/
-/*    // Skip update in particle positions*/
-/*    if (skip_particles && accessMat(particle_locations, row, col) != 0)*/
-/*        return 0;*/
-/**/
-/*    if (col == 0) { // Update if border left*/
-/*        accessMat(flow, row, col) =*/
-/*            (accessMat(flow_copy, row, col) +*/
-/*             accessMat(flow_copy, row - 1, col) * 2 +*/
-/*             accessMat(flow_copy, row - 1, col + 1)) /*/
-/*            4;*/
-/*    } else if (col == columns - 1) { // Update if border right*/
-/*        accessMat(flow, row, col) =*/
-/*            (accessMat(flow_copy, row, col) +*/
-/*             accessMat(flow_copy, row - 1, col) * 2 +*/
-/*             accessMat(flow_copy, row - 1, col - 1)) /*/
-/*            4;*/
-/*    } else { // Update in central part*/
-/*        accessMat(flow, row, col) =*/
-/*            (accessMat(flow_copy, row, col) +*/
-/*             accessMat(flow_copy, row - 1, col) * 2 +*/
-/*             accessMat(flow_copy, row - 1, col - 1) +*/
-/*             accessMat(flow_copy, row - 1, col + 1)) /*/
-/*            5;*/
-/*    }*/
-/**/
-/*    // Return flow variation at this position*/
-/*    return abs(accessMat(flow_copy, row, col) - accessMat(flow, row, col));*/
-/*}*/
-/*int pool_size = omp_get_num_threads();*/

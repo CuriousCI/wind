@@ -6,8 +6,10 @@ AlignAfterOpenBracket: BlockIndent
 BinPackArguments: false
 BinPackParameters: false
 ExperimentalAutoDetectBinPacking: false
-# AllowAllParametersOfDeclarationOnNextLine: true
+InsertBraces: true
+ColumnLimit: 96
 
+# AllowAllParametersOfDeclarationOnNextLine: true
 # IndentPPDirectives: BeforeHash
 # PPIndentWidth: 4
-ColumnLimit: 0
+# ColumnLimit: 0
