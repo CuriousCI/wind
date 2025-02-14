@@ -2,23 +2,29 @@
 
 quick=false
 debug=false
+nvprof=false
 valgrind=false
 integration=false
 submit_seq=false
 submit_omp=false
 submit_mpi=false
 submit_cuda=false
+submit_mpi_omp=false
+submit_omp_cuda=false
 
-while getopts ":bgipxvomd" option; do
+while getopts ":bgipxvomdyzq" option; do
     case $option in
         b) quick=true;;
         g) debug=true;;
+        y) nvprof=true;;
         v) valgrind=true;;
         i) integration=true;;
         x) submit_seq=true;;
         o) submit_omp=true;;
         m) submit_mpi=true;;
         d) submit_cuda=true;;
+        q) submit_mpi_omp=true;;
+        z) submit_omp_cuda=true;;
     esac
 done
 
@@ -122,21 +128,21 @@ if $quick; then
 fi
 
 if $integration; then
-    rows=128 columns=128 max_iter=512 inlet_size=$rows
+    rows=32 columns=8 max_iter=128 inlet_size=$rows
     inlet_pos=0 inlet_size=$columns
-    particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
-    particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=1.0
+    particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=0.2
+    particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=0.2
     echo "$short_rnd1 $short_rnd2 $short_rnd3"
 
     update_args
     make clean debug
 
     ./wind_seq $args > seq.txt
-    OMP_NUM_THREADS=6 ./wind_omp $args > omp.txt
-    ./wind_cuda $args > cuda.txt
-    mpirun -np 2 ./wind_mpi $args > mpi.txt
-    OMP_NUM_THREADS=3 mpirun --bind-to none -np 2 ./wind_mpi_omp $args > mpi_omp.txt
-    OMP_NUM_THREADS=6 ./wind_omp_cuda $args > omp_cuda.txt
+    # OMP_NUM_THREADS=6 ./wind_omp $args > omp.txt
+    # ./wind_cuda $args > cuda.txt
+    # mpirun -np 2 ./wind_mpi $args > mpi.txt
+    # OMP_NUM_THREADS=3 mpirun --bind-to none -np 2 ./wind_mpi_omp $args > mpi_omp.txt
+    # OMP_NUM_THREADS=6 ./wind_omp_cuda $args > omp_cuda.txt
 fi
 
 if $valgrind; then
@@ -259,7 +265,7 @@ particles_f_3() {
     done
 }
 
-particles_m_4_once() {
+particles_m_4() {
     local iter=1
     local name="particles_m_4"
 
@@ -286,9 +292,9 @@ particles_m_3() {
     done
 }
 
-full_system_4_once() {
+full_system_4() {
     local iter=1
-    local name="full_system_4_once"
+    local name="full_system_4"
 
     max_iter=10000 var_threshold=0.0
     rows=512 columns=512 
@@ -313,7 +319,14 @@ full_system_3() {
     done
 }
 
+
+
 file="data/data.csv" iter=1
+
+rows=512 columns=512 max_iter=1000 var_threshold=0.0
+inlet_pos=0 inlet_size=$columns
+particles_f_band_pos=1 particles_f_band_size=$((rows-1)) particles_f_density=1.0
+particles_m_band_pos=1 particles_m_band_size=$((rows-1)) particles_m_density=1.0
 short_rnd1=3434 short_rnd2=1242 short_rnd3=965
 
 # short_rnd1=3434
@@ -325,52 +338,103 @@ short_rnd1=3434 short_rnd2=1242 short_rnd3=965
 
 if $submit_seq; then
     prog="./wind_seq" id="seq"
+    file="data/seq.csv"
+
     tunnel_size_4
     tunnel_size_3
     particles_f_4
     particles_f_3
     particles_m_3
     full_system_3
-    particles_m_4_once
-    full_system_4_once
+    particles_m_4
+    full_system_4
 fi
 
 if $submit_omp; then
+    file="data/omp.csv"
+
     for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=32; OMP_NUM_THREADS*=2)); do
         prog="OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp" id="omp_$OMP_NUM_THREADS"
+
         tunnel_size_4
         tunnel_size_3
         particles_f_4
         particles_f_3
         particles_m_3
         full_system_3
-        particles_m_4_once
-        full_system_4_once
+        particles_m_4
+        full_system_4
     done
 fi
 
 if $submit_mpi; then
-    for ((MPI_PROC=1; MPI_PROC<=8; MPI_PROC*=2)); do
+    file="data/mpi.csv"
+
+    for ((MPI_PROC=1; MPI_PROC<=16; MPI_PROC*=2)); do
         prog="mpirun -np $MPI_PROC ./wind_mpi" id="mpi_$MPI_PROC"
+
         tunnel_size_4
         tunnel_size_3
         particles_f_4
         particles_f_3
         particles_m_3
         full_system_3
-        particles_m_4_once
-        full_system_4_once
+        particles_m_4
+        full_system_4
     done
 fi
 
 if $submit_cuda; then
     prog="./wind_cuda" id="cuda"
+    file="data/cuda.csv"
+
     tunnel_size_4
     tunnel_size_3
     particles_f_4
     particles_f_3
     particles_m_3
     full_system_3
-    particles_m_4_once
-    full_system_4_once
+    particles_m_4
+    full_system_4
+fi
+
+if $submit_omp_cuda; then
+    file="data/omp_cuda.csv"
+
+    for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=32; OMP_NUM_THREADS*=2)); do
+        prog="OMP_NUM_THREADS=$OMP_NUM_THREADS ./wind_omp_cuda" id="omp_cuda_$OMP_NUM_THREADS"
+
+        tunnel_size_4
+        tunnel_size_3
+        particles_f_4
+        particles_f_3
+        particles_m_3
+        full_system_3
+        particles_m_4
+        full_system_4
+    done
+fi
+
+if $submit_mpi_omp; then
+    file="data/mpi_omp.csv"
+
+    for ((MPI_PROC=1; MPI_PROC<=4; MPI_PROC*=2)); do
+        for ((OMP_NUM_THREADS=1; OMP_NUM_THREADS<=8; OMP_NUM_THREADS*=2)); do
+
+            prog="OMP_NUM_THREADS=$OMP_NUM_THREADS mpirun -np $MPI_PROC --bind-to none ./wind_mpi_omp" id="mpi_omp_${MPI_PROC}_$OMP_NUM_THREADS"
+
+            tunnel_size_4
+            # tunnel_size_3
+            # particles_f_4
+            # particles_f_3
+            # particles_m_3
+            # full_system_3
+            # particles_m_4
+            full_system_4
+        done
+    done
+fi
+
+if $nvprof; then
+    nvprof  --metrics dram_read_throughput  --metrics dram_write_throughput  --metrics dram_read_transactions  --metrics dram_write_transactions --metrics flop_count_sp  ./wind_cuda 512 512 1000 0.5 0 512 1 511 1.0 1 511 1.0 1902 9019 2901
 fi

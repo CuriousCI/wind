@@ -1,0 +1,11 @@
+universe = vanilla
+
+output = logs/omp.out
+error = logs/omp.err
+log = logs/omp.log
+
+request_cpus = 32
+getenv = True
+
+queue
+

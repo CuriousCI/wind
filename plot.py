@@ -1,163 +1,188 @@
-import numpy as np
+import numpy 
 import matplotlib.pyplot as plot
 import csv
 import json
 
+files = ['data/seq.csv', 'data/omp.csv', 'data/mpi.csv', 'data/cuda.csv', 'data/omp_cuda.csv', 'data/mpi_omp.csv']
+
 graphs = [
     'tunnel_size_4',
-    'tunnel_size_3',
-    'particles_f_4',
-    'particles_f_3',
-    'particles_m_3',
-    'full_system_3',
-    'particles_m_4',
-    'full_system_4_once'
+    # 'tunnel_size_3',
+    # 'particles_f_4',
+    # 'particles_f_3',
+    # 'particles_m_3',
+    # 'full_system_3',
+    # 'particles_m_4',
+    'full_system_4'
 ]
 
+graph_aggregates = [
+    # ['seq', 'omp_1', 'omp_2', 'omp_4', 'omp_8', 'omp_16', 'omp_32'],
+    # ['seq', 'cuda'],
+    # ['seq', 'mpi_1', 'mpi_2', 'mpi_4', 'mpi_8', 'mpi_16'],
+    # ['seq', 'omp_cuda_1', 'omp_cuda_2', 'omp_cuda_4', 'omp_cuda_8', 'omp_cuda_16', 'omp_cuda_32'],
+    # ['cuda', 'omp_cuda_1', 'omp_cuda_2', 'omp_cuda_4']
+    # ['seq', 'mpi_omp_1_1', 'mpi_omp_1_2', 'mpi_omp_1_4', 'mpi_omp_1_8', 'mpi_omp_2_1', 'mpi_omp_2_2', 'mpi_omp_2_4', 'mpi_omp_2_8', 'mpi_omp_4_1', 'mpi_omp_4_2', 'mpi_omp_4_4', 'mpi_omp_4_8']
+    # ['seq', 'mpi_omp_1_1', 'mpi_omp_1_2', 'mpi_omp_1_4', 'mpi_omp_1_8'],
+    # ['seq', 'mpi_omp_1_1', 'mpi_omp_2_1', 'mpi_omp_2_2', 'mpi_omp_2_4', 'mpi_omp_2_8'],
+    # ['seq', 'mpi_omp_1_1', 'mpi_omp_4_1', 'mpi_omp_4_2', 'mpi_omp_4_4', 'mpi_omp_4_8']
+]
+
+
 data = { graph: {} for graph in graphs }
-files = ['data/logs_seq_.csv', 'data/logs_cuda.csv', 'data/logs_omp_.csv']
 
 def stats(data):
-    return np.mean(data)
+    return data, numpy.mean(data), 1.96 * numpy.std(data, ddof=1) / numpy.sqrt(len(data))
 
 for f in files:
     with open(f) as file:
         reader = csv.reader(file)
-        for [graph, prog, size, time, *rest] in reader:
+        for [graph, program, x, time, *rest] in reader:
             try:
-                if prog not in data[graph]:
-                    data[graph][prog] = {}
+                if program not in data[graph]:
+                    data[graph][program] = {}
 
-                size = int(size)
+                x = int(x)
+                if x not in data[graph][program]:
+                    data[graph][program][x] = []
 
-                if size not in data[graph][prog]:
-                    data[graph][prog][size] = []
-
-                data[graph][prog][size] += [float(time)]
+                data[graph][program][x].append(float(time))
             except:
                 pass
 
 
 
 for graph in data:
-    for prog in data[graph]:
-        for size in data[graph][prog]:
-            data[graph][prog][size] = stats(data[graph][prog][size])
+    for program in data[graph]:
+        for x in data[graph][program]:
+            data[graph][program][x] = stats(data[graph][program][x])
 
-print(data)
+# print(json.dumps(data, sort_keys=True, indent=4))
 
-with open('docs/data.csv', 'w') as file:
-    for graph in data:
-        file.write(graph.replace('_3', ' 1000 iter ').replace('_4', ' 10000 iter ').replace('_once', '') + '\n')
-        file.write('prog')
-        for size in data[graph]['seq_']:
-            file.write(',' + str(size))
-        file.write('\n')
-        for prog in data[graph]:
-            file.write('wind_' + prog)
-            for size in data[graph][prog]:
-                file.write(',' + str(round(data[graph][prog][size], 4)))
-            file.write('\n')
-        file.write('\n')
+plot.figure(figsize=(6,3))
+for graph in data:
+    plot.figure(figsize=(5,3))
+    plot.figure(figsize=(5,3))
+    plot.figure(figsize=(5,3))
+    _, ax = plot.subplots()
+    for aggregate in graph_aggregates:
+        for program in aggregate:
+            x_coords = list(data[graph][program].keys())
+            x_coords_data = []
+
+            y_coords_data = []
+            y_coords_mean = []
+            y_coords_conf = []
+
+            for (dat_, mean, conf) in data[graph][program].values(): 
+                y_coords_data.append(dat_)
+                y_coords_mean.append(mean)
+                y_coords_conf.append(conf)
+
+            for (x, y_coords)  in zip(x_coords, y_coords_data):
+                for y in y_coords:
+                    x_coords_data.append(x)
+
+            x_coords = numpy.array(x_coords)
+            # y_coords_data = numpy.array(y_coords_data)
+            y_coords_mean = numpy.array(y_coords_mean)
+            y_coords_conf = numpy.array(y_coords_conf)
+
+            color = ax._get_lines.get_next_color()
+
+            plot.plot(
+                [x_coords, x_coords], 
+                [y_coords_mean - y_coords_conf, y_coords_mean + y_coords_conf], 
+                '-', linewidth=1.2, color=color
+            )
+            plot.plot(
+                [x_coords - 4, x_coords + 4], 
+                [y_coords_mean - y_coords_conf, y_coords_mean - y_coords_conf], 
+                '-', linewidth=1.2, color=color
+            )
+            plot.plot(
+                [x_coords - 4, x_coords + 4], 
+                [y_coords_mean + y_coords_conf, y_coords_mean + y_coords_conf], 
+                '-', linewidth=1.2, color=color
+            )
+
+            plot.plot(x_coords, y_coords_mean, label=f'{program} time', linewidth=1.2, color=color)
+            # plot.plot(x_coords_data, sum(y_coords_data, []), label=None, marker='o', linestyle='', markersize=2)
 
 
+        plot.xlabel('size')
+        plot.ylabel('time (seconds)')
+        plot.title(graph.replace('_3', ' 1000 iter ').replace('_4', ' 10000 iter ').replace('_once', '').replace('_', ' '))
+        plot.legend()
+        plot.grid(linewidth=0.5, linestyle='--')
+        plot.savefig(f'docs/plot/{graph}_{"_".join(aggregate[:3])}')
+        plot.gca().set_prop_cycle(None)
+        plot.close()
 
 for graph in data:
-    plot.figure(figsize=(10,6))
-    for prog in data[graph]:
-        if prog == 'cuda':
-            continue
+    for program in data[graph]:
+        for x in data[graph][program]:
+            data[graph][program][x] = data[graph][program][x][1]
 
-        x_coords = data[graph][prog].keys()
-        y_coords = data[graph][prog].values()
+with open('docs/data.csv', 'w') as file:
+    graph_aggregates = [
+        ['mpi_omp_1_1', 'mpi_omp_2_1', 'mpi_omp_2_2', 'mpi_omp_2_4', 'mpi_omp_2_8', 'mpi_omp_4_1', 'mpi_omp_4_2', 'mpi_omp_4_4', 'mpi_omp_4_8'],
+        ['omp_1', 'omp_2', 'omp_4', 'omp_8', 'omp_16', 'omp_32'],
+        ['mpi_1', 'mpi_2', 'mpi_4', 'mpi_8', 'mpi_16'],
+        ['cuda'],
+        ['omp_cuda_1', 'omp_cuda_2', 'omp_cuda_4'],
+    ]
 
-        y_coords = [data[graph]['seq_'][x] / y for (x, y) in zip(x_coords, y_coords)]
+    for graph in ['tunnel_size_4', 'full_system_4']:
+        for aggregate in graph_aggregates:
+            file.write(f'\nspeedup {graph.replace("_3", "_1000_iter_").replace("_4", "_10000_iter_")}_{"_".join(aggregate[0])}\n')
+            file.write('program')
+            limit = 125
+            if graph == 'full_system_4':
+                limit = 63
+            for x in data[graph]['seq']:
+                if x > limit:
+                    file.write(',' + str(x))
+            file.write('\n')
+            for program in aggregate:
+                file.write('[' + program)
+                for x in data[graph][program]:
+                    if x > limit:
+                        speedup = data[graph]['seq'][x] / data[graph][program][x]
+                        file.write('],[' + str(round(speedup, 2)))
+                file.write('],\n')
+        file.write('\n\n')
 
-        # plot.plot(x_coords, y_coords, label=f'{prog} speedup')
-        if prog != 'seq_':
-            y_coords = [data[graph][prog[:3] + '_1'][x] / y for (x, y) in zip(x_coords, y_coords)]
-            plot.plot(x_coords, y_coords, label=f'{prog} efficiency')
-        else:
-            pass
+    graph_aggregates = [
+        ('mpi_omp_1_1', ['mpi_omp_2_1', 'mpi_omp_2_2', 'mpi_omp_2_4', 'mpi_omp_2_8', 'mpi_omp_1_1', 'mpi_omp_4_1', 'mpi_omp_4_2', 'mpi_omp_4_4', 'mpi_omp_4_8']),
+        ('omp_1', ['omp_1', 'omp_2', 'omp_4', 'omp_8', 'omp_16', 'omp_32']),
+        ('mpi_1', ['mpi_1', 'mpi_2', 'mpi_4', 'mpi_8', 'mpi_16']),
+        ('omp_cuda_1', ['omp_cuda_1', 'omp_cuda_2', 'omp_cuda_4']),
+    ]
 
-        plot.savefig(f'docs/{graph}')
-
-
-    plot.xlabel('size')
-    plot.ylabel('time')
-    plot.title(graph.replace('_3', ' 1000 iter ').replace('_4', ' 10000 iter ').replace('_once', ''))
-    plot.legend()
-    plot.grid()
-    plot.savefig(f'docs/{graph}')
-    plot.close()
-
-
-# print(data[graph][prog].items())
-# x_coords, y_coords = data[graph][prog].items()
-# y_coords = [mean for (mean, _) in y_coords]
-# x_coords = []
-# y_coords = []
-# for (x, y) in data[graph][prog]:
-#     x_coords += [x]
-#     y_coords += [y]
-# plot.errorbar(positions, means, yerr=cis, fmt='o', color='blue', 
-#              capsize=5, capthick=2, label='Mean ± 95% CI')
-
-    # mean = []
-    # ci = []
-
-    # for group in measurements:
-    #     mean = np.mean(group)
-    #     ci = 1.96 * np.std(group, ddof=1) / np.sqrt(len(group))
-    #     means.append(mean)
-    #     cis.append(ci)
-    #
-    # return means, cis
-
-
-
-# data_seq_ = 9
-# Sample data (feel free to modify these values)
-# measurements = [
-#     [98, 102, 101, 97, 103],  # Group 1
-#     [150, 148, 152, 149, 151], # Group 2
-#     [75, 76, 74, 77, 75]       # Group 3
-# ]
-#
-#
-# # Calculate statistics
-# means, cis = calculate_stats(measurements)
-#
-# # Create positions for groups
-# positions = np.arange(len(measurements))
-#
-# # Create figure and axis
-# plot.figure(figsize=(10, 6))
-#
-# # Plot individual measurements
-# for i, group in enumerate(measurements):
-#     # Random jitter for better visibility
-#     jitter = np.random.uniform(-0.1, 0.1, len(group))
-#     plot.scatter(positions[i] + jitter, group, 
-#                color='gray', alpha=0.5, label='Individual Measurements' if i == 0 else "")
-#
-# # Plot means and confidence intervals
-# plot.errorbar(positions, means, yerr=cis, fmt='o', color='blue', 
-#              capsize=5, capthick=2, label='Mean ± 95% CI')
-#
-# # Customize the plot
-# # plot.xticks(positions, [f'Group {i+1}' for i in range(len(me
-# import matplotlib.pyplot as plot
-#
-# # Create figure with specific dimensions
-# fig, ax = plot.subplots(figsize=(8, 6))
-#
-# # Plot data
-# ax.plot([1, 2, 3], [1, 4, 9])
-#
-# # Customize plot
-# ax.set_title('Example Plot')
-# ax.grid(True)
-#
-# # Save figure with DPI control
-# fig.savefig('docs/plot.png', dpi=300, bbox_inches='tight')
+    for graph in ['tunnel_size_4', 'full_system_4']:
+        for (ref, aggregate) in graph_aggregates:
+            file.write(f'\nefficiency {graph.replace("_3", "_1000_iter_").replace("_4", "_10000_iter_")}_{"_".join(aggregate[0])}\n')
+            file.write('program')
+            limit = 125 
+            if graph == 'full_system_4':
+                limit = 63
+            for x in data[graph]['seq']:
+                if x > limit:
+                    file.write(',' + str(x))
+            file.write('\n')
+            for program in aggregate:
+                file.write('[' + program)
+                for x in data[graph][program]:
+                    if x > limit:
+                        speedup = data[graph]['seq'][x] / data[graph][program][x]
+                        p = 1
+                        if ref == 'mpi_omp_1_1':
+                            p = int(list(program.split('_'))[-1]) * int(list(program.split('_'))[-2])
+                        else:
+                            p = int(list(program.split('_'))[-1])
+                        print(speedup, p, program)
+                        efficiency = speedup / p 
+                        file.write('],[' + str(round(efficiency, 2)))
+                file.write('],\n')
+        file.write('\n\n')

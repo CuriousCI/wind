@@ -20,7 +20,7 @@ FLAGS=-O3 -Wall
 LIBS=-lm
 
 # Targets to build
-OBJS=wind_seq wind_omp wind_mpi wind_cuda wind_mpi_omp wind_mpi_cuda wind_omp_cuda
+OBJS=wind_seq # wind_omp wind_mpi wind_cuda wind_mpi_omp wind_mpi_cuda wind_omp_cuda
 
 # Rules. By default show help
 help:

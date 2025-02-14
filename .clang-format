@@ -9,7 +9,6 @@ ExperimentalAutoDetectBinPacking: false
 InsertBraces: true
 ColumnLimit: 96
 
-# AllowAllParametersOfDeclarationOnNextLine: true
 # IndentPPDirectives: BeforeHash
 # PPIndentWidth: 4
 # ColumnLimit: 0

@@ -1,0 +1,11 @@
+universe = vanilla
+
+log = logs/omp_cuda.log
+output = logs/omp_cuda.out
+error = logs/omp_cuda.err
+
+request_gpus = 1
+request_cpus = 32
+getenv = True
+
+queue

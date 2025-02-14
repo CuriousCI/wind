@@ -1,0 +1,10 @@
+universe = vanilla
+
+output = logs/seq.out
+error = logs/seq.err
+log = logs/seq.log
+
+getenv = True
+
+queue
+
